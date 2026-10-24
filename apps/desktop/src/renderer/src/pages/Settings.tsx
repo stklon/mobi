@@ -32,8 +32,9 @@ const SCENE_ROWS: { key: ModelScene; label: string; hint: string }[] = [
 ]
 
 const PROVIDER_PRESETS: { label: string; name: string; baseUrl: string; protocol: 'openai' | 'anthropic' }[] = [
+  { label: '百炼 Coding Plan', name: '百炼 Coding Plan', baseUrl: 'https://coding.dashscope.aliyuncs.com/apps/anthropic', protocol: 'anthropic' },
+  { label: '阿里百炼（按量付费）', name: '阿里百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', protocol: 'openai' },
   { label: 'DeepSeek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', protocol: 'openai' },
-  { label: '阿里百炼', name: '阿里百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', protocol: 'openai' },
   { label: 'Z.ai Coding Plan', name: 'Z.ai Coding Plan', baseUrl: 'https://api.z.ai/api/anthropic', protocol: 'anthropic' },
   { label: '智谱 Coding Plan（国内）', name: '智谱 Coding Plan', baseUrl: 'https://open.bigmodel.cn/api/anthropic', protocol: 'anthropic' }
 ]
