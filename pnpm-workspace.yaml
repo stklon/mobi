@@ -1,0 +1,8 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# pnpm 12 起构建脚本白名单从 package.json 的 pnpm 字段迁移至此
+onlyBuiltDependencies:
+  - electron
+  - esbuild

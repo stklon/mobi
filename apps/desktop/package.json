@@ -1,0 +1,35 @@
+{
+  "name": "@inkcraft/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "墨匠 InkCraft 桌面端（Electron）",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "start": "electron-vite preview",
+    "smoke": "electron-vite build && cross-env INKCRAFT_SMOKE=1 electron-vite preview"
+  },
+  "dependencies": {
+    "@inkcraft/core": "workspace:*",
+    "@inkcraft/shared": "workspace:*",
+    "@tiptap/pm": "^3.32.0",
+    "@tiptap/react": "^3.32.0",
+    "@tiptap/starter-kit": "^3.32.0",
+    "better-sqlite3": "^13.0.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^43.8.3",
+    "electron-vite": "^6.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "~5.9.3"
+  }
+}

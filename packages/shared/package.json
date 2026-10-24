@@ -1,0 +1,15 @@
+{
+  "name": "@inkcraft/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "渲染进程与主进程共享的类型与 IPC 契约",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}

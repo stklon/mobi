@@ -1,0 +1,13 @@
+{
+  "name": "inkcraft",
+  "version": "0.1.0",
+  "private": true,
+  "description": "墨匠 InkCraft - AI 长篇小说创作软件（Windows 桌面端）",
+  "scripts": {
+    "build:packages": "pnpm --filter @inkcraft/shared --filter @inkcraft/core build",
+    "dev": "pnpm build:packages && pnpm --filter @inkcraft/desktop dev",
+    "build": "pnpm build:packages && pnpm --filter @inkcraft/desktop build",
+    "typecheck": "pnpm build:packages && pnpm -r typecheck",
+    "smoke": "pnpm build:packages && pnpm --filter @inkcraft/desktop smoke"
+  }
+}
