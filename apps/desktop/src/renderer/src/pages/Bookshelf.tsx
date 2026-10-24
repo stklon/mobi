@@ -13,12 +13,20 @@ function formatDate(ts: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+const WELCOME_KEY = 'inkcraft.welcomed'
+
 export function Bookshelf({ onOpen, onStartWizard, onOpenSettings }: Props) {
   const [projects, setProjects] = useState<ProjectDTO[]>([])
   const [info, setInfo] = useState<AppInfoDTO | null>(null)
   const [form, setForm] = useState<CreateProjectPayload>({ title: '', genre: '玄幻' })
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
+  const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem(WELCOME_KEY))
+
+  const dismissWelcome = (): void => {
+    localStorage.setItem(WELCOME_KEY, '1')
+    setShowWelcome(false)
+  }
 
   const refresh = useCallback(async () => {
     setProjects(await window.inkcraft.projectList())
@@ -69,6 +77,32 @@ export function Bookshelf({ onOpen, onStartWizard, onOpenSettings }: Props) {
           ⚙ 设置
         </button>
       </header>
+
+      {showWelcome && (
+        <section className="welcome-card">
+          <h2>欢迎使用墨匠 InkCraft</h2>
+          <p className="welcome-sub">三步开始你的第一部 AI 长篇：</p>
+          <ol className="welcome-steps">
+            <li>
+              在 <b>设置 → 模型服务</b> 添加 API（DeepSeek / 智谱 / Kimi / 通义 / 本地 Ollama 均可），
+              并在 <b>模型分工</b> 为「创世 / 续写 / 润色 / 摘要」各选一个模型。
+            </li>
+            <li>
+              <b>新建作品</b> 进入创世向导：一句话创意 → AI 生成世界观、角色、总纲（每步可改）。
+            </li>
+            <li>
+              写作中 <b>Ctrl+Enter</b> 流式续写（自动携带世界观/角色/章纲）；每写完一章，
+              在 AI 面板<b>「生成摘要并归档」</b>——AI 会记住你的整个故事。
+            </li>
+          </ol>
+          <div className="welcome-actions">
+            <button onClick={onOpenSettings}>① 去配置模型</button>
+            <button className="ghost" onClick={dismissWelcome}>
+              开始使用
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="create-card">
         <h2>新建作品</h2>

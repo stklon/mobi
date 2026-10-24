@@ -6,3 +6,7 @@ packages:
 onlyBuiltDependencies:
   - electron
   - esbuild
+
+# Electron 打包需要 npm 风格的扁平 node_modules（原生模块复制/解析）；
+# pnpm 12 中 node-linker 已从 .npmrc 迁移到此处
+nodeLinker: hoisted

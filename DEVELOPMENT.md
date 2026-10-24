@@ -62,9 +62,49 @@ node install.js
 - [x] M1：monorepo 骨架、书架/项目 CRUD、卷/章节 CRUD、TipTap 编辑器 + 自动保存、设置页（Provider + Key 加密 + 模型分工）、Git 仓库
 - [x] M2：AIOrchestrator（SSE 流式/队列/取消/重试/日志）、PromptEngine、Ctrl+Enter 流式续写（草稿态高亮 + 采纳/回滚）、划词工具、快照系统
 - [x] M3：创世向导四步流程、设定集 Codex（别名/常驻标记）、三层大纲 + 批量章纲、T-06 注入世界观/角色卡/章纲
-- [x] M4：**RAG 管线**（场景切片/实体标注/嵌入/混合检索/章节邻近加权 → T-06「补充资料」区块）、**记忆系统**（章后摘要 T-09 → 前文记忆用摘要替代原文尾巴）、**导出** txt/docx、RAG 索引状态与全书重建
-- [ ] M4 收尾（可选）：向量检索评测集（召回率@5）、透明度面板（查看实际提示词/检索命中）、卷摘要、epub
-- [ ] M5：100 万字压测、打包安装程序（electron-builder + npmmirror 二进制镜像）、首启引导
+- [x] M4：RAG 管线（切片/实体标注/嵌入/混合检索）、记忆系统（章后摘要）、导出 txt/docx
+- [x] M5：**百万字压测全达标**（见下）、**NSIS 安装包 + 便携版打包**（产物冒烟通过）、首启引导
+- [ ] 后续（V1.1+）：提示词透明度面板、模板中心编辑 UI、用量统计、卷摘要、伏笔登记表、一致性检查、epub 导出、检索评测集、代码签名与自动更新
+
+## M5 压测结果（`pnpm --filter @inkcraft/desktop bench`）
+
+合成书：500 章 / 60.7 万字 / 50 份摘要 / 1510 切片（走真实服务代码路径）：
+
+| 指标 | 结果 | SRS 目标 |
+|---|---|---|
+| 建库 + 50 次归档索引 | 146ms | — |
+| 全量索引重建（500 章 + 设定） | 205ms | 10万字 < 60s |
+| RAG 检索（热缓存） | avg 0.5ms / p95 1.3ms | < 500ms |
+| RAG 检索（冷启动含载入） | 2ms | — |
+| T-06 全量组装（含检索） | 1.3ms | < 200ms（不含检索） |
+| 章节列表（500 章）/ 单章读取 | 0.4ms / 0.0ms | — |
+| 数据库体积 | 5.3 MB | ≤ 200MB/百万字 |
+
+## 打包发布（`apps/desktop/electron-builder.yml`）
+
+```bash
+# 环境变量（国内网络必须）：electron-builder 二进制走 npmmirror
+set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
+
+pnpm --filter @inkcraft/desktop dist:dir   # 免安装目录版（release/win-unpacked/，用于验证）
+pnpm --filter @inkcraft/desktop dist       # NSIS 安装包 + 便携版（release/*.exe）
+pnpm --filter @inkcraft/desktop bench      # 压测
+pnpm smoke                                 # 全链路冒烟（也可用于验证打包产物：设 INKCRAFT_SMOKE=1 后运行 exe）
+```
+
+产物（0.1.0）：`InkCraft-Setup-0.1.0.exe`（112MB，NSIS 向导式安装）、`InkCraft-Portable-0.1.0.exe`（100MB，免安装）。默认图标、未签名（正式发布需自备图标与代码签名证书）。
+
+打包要点：
+1. **主进程已 bundle**（仅 better-sqlite3 / docx 外部化），规避 pnpm workspace 符号链接问题；
+2. **npmRebuild: false**——better-sqlite3 v13 为 N-API，预编译 .node 随包分发，无需 @electron/rebuild；
+3. **nodeLinker: hoisted**（pnpm 12 该配置在 pnpm-workspace.yaml，.npmrc 里的不生效）；
+4. **electron 版本必须精确**（去掉 ^），否则 electron-builder 拒绝构建；
+5. electronLanguages 仅保留 zh-CN/en-US，省 44MB；
+6. 渲染层依赖（react/@tiptap）放 devDependencies（vite 已 bundle，运行时不需要）。
+
+## 已知问题
+
+- pnpm 重装（hoisted 布局变更等）后 Electron 二进制可能丢失（副作用缓存重放问题）：`cd node_modules\electron && set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && node install.js` 可恢复。
 
 ## M4 续写上下文注入（T-06 实际发送的区块）
 

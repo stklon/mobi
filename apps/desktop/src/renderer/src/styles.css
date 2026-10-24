@@ -595,6 +595,42 @@ textarea:focus {
   gap: 8px;
 }
 
+/* ---------- 首启引导 ---------- */
+
+.welcome-card {
+  background: linear-gradient(135deg, rgba(124, 110, 240, 0.14), rgba(124, 110, 240, 0.04));
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 22px;
+  margin: 0 0 20px;
+}
+.welcome-card h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+.welcome-sub {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+.welcome-steps {
+  margin: 0 0 16px;
+  padding-left: 20px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 2;
+}
+.welcome-steps b {
+  color: var(--accent);
+}
+.welcome-actions {
+  display: flex;
+  gap: 10px;
+}
+.welcome-actions button {
+  width: auto;
+}
+
 /* ---------- 章后归档 ---------- */
 
 .archive-box {

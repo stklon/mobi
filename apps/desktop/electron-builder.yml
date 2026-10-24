@@ -1,0 +1,46 @@
+appId: com.inkcraft.desktop
+productName: InkCraft
+copyright: Copyright © 2026 InkCraft
+
+directories:
+  output: release
+
+# better-sqlite3 v13 为 N-API：预编译 .node 随包分发（prebuilds/ 目录），
+# Node/Electron 通用，无需 @electron/rebuild 编译
+npmRebuild: false
+
+# 只保留中英文语言包（Electron 默认带 ~50 种，省 ~44MB 解压体积）
+electronLanguages:
+  - zh-CN
+  - en-US
+
+# 主进程已 bundle（仅 better-sqlite3 / docx 外部化），node_modules 由
+# electron-builder 依据 package.json 生产依赖自动收集
+files:
+  - out/**
+  - package.json
+
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: InkCraft-Setup-${version}.${ext}
+
+portable:
+  artifactName: InkCraft-Portable-${version}.${ext}
+
+# 国内网络：Electron 二进制走 npmmirror 镜像
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/

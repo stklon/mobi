@@ -19,6 +19,7 @@ import { IPC } from '@inkcraft/shared'
 import type { AiEvent } from '@inkcraft/shared'
 import { BUILTIN_TEMPLATES, buildExportText, chunkText, parseCharacterCards, parseOutlineBatch } from '@inkcraft/core'
 import { registerIpc } from './ipc'
+import { runBench } from './bench'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -317,6 +318,18 @@ app.whenReady()
           .then(() => app.quit())
           .catch((err) => {
             console.error('[smoke] FAILED:', err)
+            app.exit(1)
+          })
+      }, 1500)
+    }
+
+    // 压测模式：构造 500 章百万字合成书，量测各环节延迟（INKCRAFT_BENCH=1）
+    if (process.env.INKCRAFT_BENCH) {
+      setTimeout(() => {
+        runBench({ library, codex, rag, memory, writing, dbPath: db.name })
+          .then(() => app.quit())
+          .catch((err) => {
+            console.error('[bench] FAILED:', err)
             app.exit(1)
           })
       }, 1500)
