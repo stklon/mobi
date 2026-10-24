@@ -182,6 +182,11 @@ export class LibraryService {
     return rows.map(toVolume)
   }
 
+  getVolume(id: string): VolumeDTO | null {
+    const row = this.db.prepare('SELECT * FROM volumes WHERE id = ?').get(id) as VolumeRow | undefined
+    return row ? toVolume(row) : null
+  }
+
   createVolume(projectId: string, title: string): VolumeDTO {
     this.getProjectOrThrow(projectId)
     const t = title.trim()

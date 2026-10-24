@@ -60,28 +60,26 @@ node install.js
 ## 当前进度（对照开发文档里程碑）
 
 - [x] M1：monorepo 骨架、书架/项目 CRUD、卷/章节 CRUD、TipTap 编辑器 + 自动保存、设置页（Provider + Key 加密 + 模型分工）、Git 仓库
-- [x] M2 核心：AIOrchestrator（SSE 流式/串行队列/取消/首字节超时/连接类重试/ai_logs）、PromptEngine（模板入库 seed + {{var}}/{{#if}} 渲染 + token 估算）、**Ctrl+Enter 流式续写**（草稿态高亮 + 采纳/回滚本次）、**划词工具**（BubbleMenu 润色/改写/扩写/缩写 + 替换选区）、快照系统（AI 生成前自动快照 + 手动恢复）
-- [ ] M2 收尾（可选）：提示词透明度面板（查看实际发送的完整提示词）、模板中心编辑 UI、用量统计 UI
-- [ ] M3：创世向导、Codex、三层大纲
-- [ ] M4：RAG 管线、记忆系统、导出
+- [x] M2：AIOrchestrator（SSE 流式/队列/取消/重试/日志）、PromptEngine、Ctrl+Enter 流式续写（草稿态高亮 + 采纳/回滚）、划词工具、快照系统
+- [x] M3：创世向导四步流程（创意→世界观→角色→总纲，T-01/02/03 流式生成 + 可编辑）、设定集 Codex（七类条目/别名/常驻标记）、三层大纲（总纲/卷纲/章纲 + T-05 批量章纲 JSON 解析确认流）、**T-06 续写注入世界观常驻卡 + 出场角色档案（别名匹配）+ 本章大纲**
+- [ ] M3 收尾（可选）：章纲一键生成正文章节、卷纲 AI 生成（T-04）、模板中心编辑 UI
+- [ ] M4：RAG 管线（切片/嵌入/混合检索/Token 预算装配）、记忆系统（章后摘要/角色状态/伏笔）、导出 txt/docx
 - [ ] M5：压测与打包
 
-## AI 生成流程速览（M2 实现）
+## M3 续写上下文注入（T-06 实际发送的区块）
 
 ```
-渲染层 Ctrl+Enter / 划词菜单
-  → IPC ai:continue / ai:polish（主进程同步构建上下文 + 渲染模板 + 建快照，立即返回 requestId）
-  → AiOrchestrator 串行队列 → OpenAI 兼容 /chat/completions（SSE 流式）
-  → chunk/finish/cancelled/error 事件经 IPC ai:event 广播
-  → 续写：appendDraftText 逐块插入编辑器末尾（aiDraft mark 高亮）
-     润色：结果流式显示在 AI 面板，「替换选区」时字符串级替换（规避位置漂移）
+铁律 → 世界观核心设定（Codex importance=pinned，总长≤3000字）
+     → 出场角色档案（章纲 characters 按名称/别名匹配 Codex 角色，≤4张）
+     → 本章大纲（目标/情节点/出场角色/章末钩子）
+     → 前文衔接（前2章结尾）→ 正文尾部（2000字）→ 续写指令
 ```
 
 ## 已知技术决策备忘
 
 1. **better-sqlite3 v13（N-API）**：不再需要为 Electron 重编译原生模块；代价是锁死大版本（v12 及以下为旧 ABI 机制）。
 2. **单库文件**：V1 实现为单 `library.db`，较开发文档的"单书单库"简化；SQLite 处理百万字无压力，如后续需要再拆分。
-3. **pnpm 12**：构建脚本白名单（`onlyBuiltDependencies`）已迁至 `pnpm-workspace.yaml`；`pnpm typecheck` 会先构建 shared/core（desktop 依赖其 dist 类型）；传递依赖必须显式声明（如 @tiptap/core）。
+3. **pnpm 12**：构建脚本白名单（`onlyBuiltDependencies`）已迁至 `pnpm-workspace.yaml`；`pnpm typecheck` 会先构建 shared/core（desktop 依赖其 dist 类型）；传递依赖必须显式声明（如 @tiptap/core、core→shared）。
 4. **electron-vite 6 + Vite 8（rolldown）**：main/preload 输出 CJS 到 `out/`，`main` 字段指向 `out/main/index.js`。
 5. **API Key 安全**：经 Electron `safeStorage`（Windows DPAPI）加密后存入 settings 表；渲染层只拿到 `hasKey` 布尔值，解密仅在主进程（`SettingService.getApiKey`）。
 6. **TipTap 纯文本模型**：章节存储始终是纯文本（`\n` = 段落分隔），StarterKit 关闭全部格式化扩展；aiDraft 草稿高亮是会话级 mark，不入库。
@@ -89,3 +87,6 @@ node install.js
 8. **AI 重试语义**：只有「拿到响应体之前」的失败（连接/429/5xx）才重试；流一旦开始，中断即最终失败（已收内容保留在编辑器，靠快照回滚），避免重试导致渲染层内容重复。
 9. **token 用量为估算值**：SSE 不强依赖 usage 字段（兼容各家），prompt/completion 按中文 ~1.5 字/token 折算。
 10. **console-message 的 level 是数字**：Electron 43 类型定义中 3 = error（不是字符串 'error'）。
+11. **模板 seed 为 upsert**：每次启动把内置模板（T-01/02/03/05/06/07）同步为最新内容；做模板编辑 UI 时需引入 user_modified 标记，仅更新未被用户修改的行。
+12. **章纲与章节松耦合**：outline_nodes(chapter) 按 project+chapter_no 定位，不要求正文章节先存在（可先纲后文）；续写时按当前章号自动关联。
+13. **角色匹配走名称/别名**：章纲 characters 是名字数组（非 id），T-06 构建时与 Codex 角色条目的 name/aliases 精确匹配——写章纲时角色名需与设定集一致（别名也可）。

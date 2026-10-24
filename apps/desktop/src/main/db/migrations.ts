@@ -101,6 +101,44 @@ const migrations: Migration[] = [
       );
       CREATE INDEX idx_snapshots_chapter ON snapshots(chapter_id, created_at);
     `
+  },
+  {
+    version: 4,
+    name: 'codex-and-outline',
+    sql: `
+      CREATE TABLE codex_entries (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        aliases TEXT NOT NULL DEFAULT '[]',
+        content TEXT NOT NULL DEFAULT '',
+        importance TEXT NOT NULL DEFAULT 'retrieval',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_codex_project ON codex_entries(project_id, type);
+
+      CREATE TABLE outline_nodes (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        volume_id TEXT,
+        chapter_no INTEGER,
+        level TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        content TEXT NOT NULL DEFAULT '',
+        goal TEXT NOT NULL DEFAULT '',
+        plot_points TEXT NOT NULL DEFAULT '[]',
+        characters TEXT NOT NULL DEFAULT '[]',
+        ending_hook TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'confirmed',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_outline_project ON outline_nodes(project_id, level);
+      CREATE INDEX idx_outline_chapter ON outline_nodes(project_id, chapter_no);
+      CREATE UNIQUE INDEX idx_outline_volume ON outline_nodes(volume_id) WHERE level = 'volume';
+    `
   }
 ]
 

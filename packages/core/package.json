@@ -11,6 +11,7 @@
     "test": "echo 'core tests: pending vitest setup in M2'"
   },
   "dependencies": {
+    "@inkcraft/shared": "workspace:*",
     "zod": "^4.6.7"
   },
   "devDependencies": {

@@ -5,22 +5,37 @@ import type {
   AiStartResult,
   AppInfoDTO,
   CreateChapterPayload,
+  CreateCodexPayload,
   CreateProjectPayload,
   CreateProviderPayload,
+  GenesisParams,
   ModelConfigDTO,
+  OutlineBatchParams,
   PolishParams,
   ProviderTestPayload,
+  SaveBookOutlinePayload,
+  SaveChapterOutlinePayload,
   SaveChapterPayload,
+  SaveVolumeOutlinePayload,
   SnapshotKind,
+  UpdateCodexPayload,
   UpdateProjectPayload,
   UpdateProviderPayload
 } from '@inkcraft/shared'
-import { continueParamsSchema, polishParamsSchema } from '@inkcraft/core'
+import {
+  continueParamsSchema,
+  genesisParamsSchema,
+  outlineBatchParamsSchema,
+  polishParamsSchema
+} from '@inkcraft/core'
 import type { LibraryService } from './services/libraryService'
 import type { SettingService } from './services/settingService'
 import type { SnapshotService } from './services/snapshotService'
 import type { WritingService } from './services/writingService'
 import type { AiOrchestrator } from './services/aiOrchestrator'
+import type { CodexService } from './services/codexService'
+import type { OutlineService } from './services/outlineService'
+import type { GenesisService } from './services/genesisService'
 
 export interface MainServices {
   library: LibraryService
@@ -28,6 +43,9 @@ export interface MainServices {
   writing: WritingService
   snapshots: SnapshotService
   orchestrator: AiOrchestrator
+  codex: CodexService
+  outline: OutlineService
+  genesis: GenesisService
 }
 
 /**
@@ -38,7 +56,7 @@ export function registerIpc(
   services: MainServices,
   meta: { version: string; dbPath: string }
 ): void {
-  const { library, settings, writing, snapshots, orchestrator } = services
+  const { library, settings, writing, snapshots, orchestrator, codex, outline, genesis } = services
 
   const handle = (channel: string, fn: (...args: unknown[]) => unknown): void => {
     ipcMain.handle(channel, (_event, ...args) => {
@@ -105,6 +123,36 @@ export function registerIpc(
     return { requestId }
   })
 
+  handle(IPC.AIGenesis, (p): AiStartResult => {
+    const params = genesisParamsSchema.parse(p as GenesisParams)
+    const built = genesis.buildGenesisPrompt(params)
+    const requestId = randomUUID()
+    orchestrator.enqueue({
+      requestId,
+      scene: 'genesis',
+      prompt: built.prompt,
+      templateCode: built.templateCode,
+      temperature: built.temperature,
+      maxTokens: built.maxTokens
+    })
+    return { requestId }
+  })
+
+  handle(IPC.AIOutlineBatch, (p): AiStartResult => {
+    const params = outlineBatchParamsSchema.parse(p as OutlineBatchParams)
+    const built = genesis.buildOutlineBatchPrompt(params)
+    const requestId = randomUUID()
+    orchestrator.enqueue({
+      requestId,
+      scene: 'outline',
+      prompt: built.prompt,
+      templateCode: built.templateCode,
+      temperature: built.temperature,
+      maxTokens: built.maxTokens
+    })
+    return { requestId }
+  })
+
   handle(IPC.AICancel, (requestId) => orchestrator.cancel(requestId as string))
 
   // ---------- 快照 ----------
@@ -118,4 +166,23 @@ export function registerIpc(
       library.saveChapter({ id: chapterId, content })
     )
   )
+
+  // ---------- 设定集（Codex） ----------
+
+  handle(IPC.CodexList, (projectId, type) => codex.list(projectId as string, type as string | undefined))
+  handle(IPC.CodexCreate, (p) => codex.create(p as CreateCodexPayload))
+  handle(IPC.CodexUpdate, (p) => codex.update(p as UpdateCodexPayload))
+  handle(IPC.CodexDelete, (id) => codex.delete(id as string))
+
+  // ---------- 大纲 ----------
+
+  handle(IPC.OutlineGetBook, (projectId) => outline.getBook(projectId as string))
+  handle(IPC.OutlineSaveBook, (p) => outline.saveBook(p as SaveBookOutlinePayload))
+  handle(IPC.OutlineGetVolume, (volumeId) => outline.getVolume(volumeId as string))
+  handle(IPC.OutlineSaveVolume, (p) => outline.saveVolume(p as SaveVolumeOutlinePayload))
+  handle(IPC.OutlineGetChapter, (projectId, chapterNo) =>
+    outline.getChapter(projectId as string, chapterNo as number)
+  )
+  handle(IPC.OutlineListChapters, (projectId) => outline.listChapters(projectId as string))
+  handle(IPC.OutlineSaveChapter, (p) => outline.saveChapter(p as SaveChapterOutlinePayload))
 }

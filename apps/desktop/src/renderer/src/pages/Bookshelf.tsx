@@ -4,6 +4,7 @@ import { GENRES } from '@inkcraft/core'
 
 interface Props {
   onOpen: (project: ProjectDTO) => void
+  onStartWizard: (project: ProjectDTO) => void
   onOpenSettings: () => void
 }
 
@@ -12,7 +13,7 @@ function formatDate(ts: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export function Bookshelf({ onOpen, onOpenSettings }: Props) {
+export function Bookshelf({ onOpen, onStartWizard, onOpenSettings }: Props) {
   const [projects, setProjects] = useState<ProjectDTO[]>([])
   const [info, setInfo] = useState<AppInfoDTO | null>(null)
   const [form, setForm] = useState<CreateProjectPayload>({ title: '', genre: '玄幻' })
@@ -33,7 +34,7 @@ export function Bookshelf({ onOpen, onOpenSettings }: Props) {
     setError('')
     try {
       const project = await window.inkcraft.projectCreate(form)
-      onOpen(project)
+      onStartWizard(project) // 新书进入创世向导
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {

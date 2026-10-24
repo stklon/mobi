@@ -7,17 +7,26 @@ import type {
   ChapterMetaDTO,
   ContinueParams,
   CreateChapterPayload,
+  CreateCodexPayload,
+  CodexEntryDTO,
   CreateProjectPayload,
   CreateProviderPayload,
+  GenesisParams,
   ModelConfigDTO,
+  OutlineBatchParams,
+  OutlineNodeDTO,
   PolishParams,
   ProjectDTO,
   ProviderDTO,
   ProviderTestPayload,
   ProviderTestResult,
+  SaveBookOutlinePayload,
+  SaveChapterOutlinePayload,
   SaveChapterPayload,
+  SaveVolumeOutlinePayload,
   SnapshotDTO,
   SnapshotKind,
+  UpdateCodexPayload,
   UpdateProjectPayload,
   UpdateProviderPayload,
   VolumeDTO
@@ -46,9 +55,22 @@ export const IPC = {
   AIPolish: 'ai:polish',
   AICancel: 'ai:cancel',
   AIEvent: 'ai:event',
+  AIGenesis: 'ai:genesis',
+  AIOutlineBatch: 'ai:outline-batch',
   SnapshotList: 'snapshot:list',
   SnapshotCreate: 'snapshot:create',
-  SnapshotRestore: 'snapshot:restore'
+  SnapshotRestore: 'snapshot:restore',
+  CodexList: 'codex:list',
+  CodexCreate: 'codex:create',
+  CodexUpdate: 'codex:update',
+  CodexDelete: 'codex:delete',
+  OutlineGetBook: 'outline:get-book',
+  OutlineSaveBook: 'outline:save-book',
+  OutlineGetVolume: 'outline:get-volume',
+  OutlineSaveVolume: 'outline:save-volume',
+  OutlineGetChapter: 'outline:get-chapter',
+  OutlineListChapters: 'outline:list-chapters',
+  OutlineSaveChapter: 'outline:save-chapter'
 } as const
 
 export interface InkcraftApi {
@@ -74,7 +96,20 @@ export interface InkcraftApi {
   aiCancel(requestId: string): Promise<void>
   /** 全局 AI 事件流（渲染层挂载时订阅，按 requestId 过滤，避免 invoke 后才订阅丢事件） */
   onAiEvent(cb: (event: AiEvent) => void): () => void
+  aiGenesis(params: GenesisParams): Promise<AiStartResult>
+  aiOutlineBatch(params: OutlineBatchParams): Promise<AiStartResult>
   snapshotList(chapterId: string): Promise<SnapshotDTO[]>
   snapshotCreate(chapterId: string, kind: SnapshotKind, title: string): Promise<SnapshotDTO>
   snapshotRestore(snapshotId: string): Promise<ChapterDTO>
+  codexList(projectId: string, type?: string): Promise<CodexEntryDTO[]>
+  codexCreate(payload: CreateCodexPayload): Promise<CodexEntryDTO>
+  codexUpdate(payload: UpdateCodexPayload): Promise<CodexEntryDTO>
+  codexDelete(codexId: string): Promise<void>
+  outlineGetBook(projectId: string): Promise<OutlineNodeDTO | null>
+  outlineSaveBook(payload: SaveBookOutlinePayload): Promise<OutlineNodeDTO>
+  outlineGetVolume(volumeId: string): Promise<OutlineNodeDTO | null>
+  outlineSaveVolume(payload: SaveVolumeOutlinePayload): Promise<OutlineNodeDTO>
+  outlineGetChapter(projectId: string, chapterNo: number): Promise<OutlineNodeDTO | null>
+  outlineListChapters(projectId: string): Promise<OutlineNodeDTO[]>
+  outlineSaveChapter(payload: SaveChapterOutlinePayload): Promise<OutlineNodeDTO>
 }

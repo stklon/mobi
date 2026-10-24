@@ -628,3 +628,318 @@ textarea:focus {
   background: var(--accent);
   color: #fff;
 }
+
+/* ---------- 右栏标签页 ---------- */
+
+.panel-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.panel-tabs button {
+  background: transparent;
+  color: var(--text-dim);
+  border: none;
+  padding: 5px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  width: auto;
+}
+.panel-tabs button.active {
+  background: rgba(124, 110, 240, 0.18);
+  color: var(--accent);
+}
+.panel-tabs button:hover:not(.active) {
+  color: var(--text);
+}
+
+/* ---------- 设定（Codex）标签页 ---------- */
+
+.codex-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.codex-toolbar select {
+  flex: 1;
+  min-width: 0;
+}
+
+.codex-form,
+.outline-tab .codex-form {
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.codex-form-row {
+  display: flex;
+  gap: 8px;
+}
+.codex-form-row input {
+  flex: 1;
+  min-width: 0;
+}
+.codex-form textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.7;
+}
+.codex-form-actions {
+  display: flex;
+  gap: 8px;
+}
+.codex-form-actions button {
+  flex: 1;
+  width: auto;
+}
+
+.codex-list,
+.outline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.codex-item {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.codex-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.codex-item-name {
+  font-weight: 600;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pinned-badge {
+  font-size: 11px;
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.codex-item-aliases {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-top: 4px;
+}
+.codex-item-content {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.codex-item-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* ---------- 大纲标签页 ---------- */
+
+.outline-section {
+  margin-bottom: 18px;
+}
+.outline-section h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.outline-section textarea {
+  width: 100%;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.7;
+  margin-bottom: 8px;
+}
+.outline-section select {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.batch-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.add-outline-btn {
+  margin-bottom: 8px;
+}
+.batch-confirm {
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+.batch-confirm p {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 0 0 8px;
+}
+.batch-list {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+.batch-item {
+  font-size: 12px;
+  color: var(--text);
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.outline-item {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.outline-item:hover {
+  border-color: var(--accent);
+}
+.outline-item-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.outline-item-head .chapter-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.outline-item-goal {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.outline-item-chars {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+/* ---------- 创世向导 ---------- */
+
+.wizard {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 32px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.wizard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.wizard-header h1 {
+  margin: 0;
+  font-size: 22px;
+}
+.wizard-steps {
+  list-style: none;
+  display: flex;
+  gap: 24px;
+  padding: 0;
+  margin: 24px 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.wizard-steps li.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+.wizard-steps li.done {
+  color: var(--ok);
+}
+.wizard-body {
+  flex: 1;
+}
+.wizard-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.wizard-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.wizard-form textarea,
+.wizard-form input {
+  font-size: 14px;
+}
+.checkbox-row {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+}
+.wizard-gen-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.wizard-gen-head > span {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.wizard-gen-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.wizard-gen-actions button {
+  width: auto;
+}
+.theme-input {
+  width: 200px;
+}
+.wizard-textarea {
+  width: 100%;
+  font-size: 14px;
+  line-height: 1.9;
+  font-family: inherit;
+  resize: vertical;
+}
+.wizard-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 24px;
+}
+.wizard-footer button {
+  min-width: 140px;
+}

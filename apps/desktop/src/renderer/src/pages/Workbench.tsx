@@ -18,6 +18,8 @@ import {
   setEditorContent
 } from '../components/ChapterEditor'
 import type { SelectionInfo } from '../components/ChapterEditor'
+import { CodexTab } from '../components/CodexTab'
+import { OutlineTab } from '../components/OutlineTab'
 
 interface Props {
   project: ProjectDTO
@@ -82,6 +84,7 @@ export function Workbench({ project, onBack }: Props) {
   const [wordCount, setWordCount] = useState(1000)
   const [snapshots, setSnapshots] = useState<SnapshotDTO[]>([])
   const [selectedSnapshot, setSelectedSnapshot] = useState('')
+  const [panelTab, setPanelTab] = useState<'ai' | 'codex' | 'outline'>('ai')
 
   const editorRef = useRef<Editor | null>(null)
   const continueReqRef = useRef<string | null>(null)
@@ -439,7 +442,30 @@ export function Workbench({ project, onBack }: Props) {
         </main>
 
         <aside className="ai-panel">
-          <h3>AI 续写</h3>
+          <div className="panel-tabs">
+            <button className={panelTab === 'ai' ? 'active' : ''} onClick={() => setPanelTab('ai')}>
+              AI
+            </button>
+            <button
+              className={panelTab === 'codex' ? 'active' : ''}
+              onClick={() => setPanelTab('codex')}
+            >
+              设定
+            </button>
+            <button
+              className={panelTab === 'outline' ? 'active' : ''}
+              onClick={() => setPanelTab('outline')}
+            >
+              大纲
+            </button>
+          </div>
+
+          {panelTab === 'codex' && <CodexTab projectId={project.id} />}
+          {panelTab === 'outline' && <OutlineTab projectId={project.id} />}
+
+          {panelTab === 'ai' && (
+            <>
+              <h3>AI 续写</h3>
           {continueModel && continueProvider ? (
             <p className="model-line">
               {continueProvider.name} · {continueModel.model}
@@ -545,6 +571,8 @@ export function Workbench({ project, onBack }: Props) {
               恢复
             </button>
           </div>
+            </>
+          )}
         </aside>
       </div>
     </div>

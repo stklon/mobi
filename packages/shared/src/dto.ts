@@ -176,3 +176,125 @@ export interface SnapshotDTO {
   wordCount: number
   createdAt: number
 }
+
+// ---------- 设定集（Codex） ----------
+
+export type CodexType = 'world' | 'character' | 'location' | 'faction' | 'item' | 'rule' | 'custom'
+export type CodexImportance = 'pinned' | 'retrieval'
+
+export interface CodexEntryDTO {
+  id: string
+  projectId: string
+  type: CodexType
+  name: string
+  /** 别名/曾用名/称号（供角色匹配与后续 RAG 关键词召回） */
+  aliases: string[]
+  content: string
+  importance: CodexImportance
+  createdAt: number
+  updatedAt: number
+}
+
+export interface CreateCodexPayload {
+  projectId: string
+  type: CodexType
+  name: string
+  aliases?: string[]
+  content?: string
+  importance?: CodexImportance
+}
+
+export interface UpdateCodexPayload {
+  id: string
+  type?: CodexType
+  name?: string
+  aliases?: string[]
+  content?: string
+  importance?: CodexImportance
+}
+
+// ---------- 大纲 ----------
+
+export type OutlineLevel = 'book' | 'volume' | 'chapter'
+export type OutlineStatus = 'pending' | 'confirmed'
+
+export interface OutlineNodeDTO {
+  id: string
+  projectId: string
+  volumeId: string | null
+  /** chapter 级关联的全书连续章号 */
+  chapterNo: number | null
+  level: OutlineLevel
+  title: string
+  /** book/volume 级的自由 Markdown 正文 */
+  content: string
+  /** chapter 级结构化字段 */
+  goal: string
+  plotPoints: string[]
+  characters: string[]
+  endingHook: string
+  status: OutlineStatus
+  updatedAt: number
+}
+
+export interface SaveBookOutlinePayload {
+  projectId: string
+  title?: string
+  content: string
+}
+
+export interface SaveVolumeOutlinePayload {
+  volumeId: string
+  title?: string
+  content: string
+}
+
+export interface SaveChapterOutlinePayload {
+  projectId: string
+  volumeId: string
+  chapterNo: number
+  title?: string
+  goal?: string
+  plotPoints?: string[]
+  characters?: string[]
+  endingHook?: string
+  status?: OutlineStatus
+}
+
+// ---------- 创世向导与批量章纲 ----------
+
+export type GenesisStep = 'world' | 'characters' | 'outline'
+
+export interface GenesisInput {
+  idea: string
+  styleKeywords: string
+  hasGoldenFinger: boolean
+  characterCount?: number
+  theme?: string
+  /** step=characters 时无需；step=outline 时由前两步产出回填 */
+  worldContent?: string
+  charactersContent?: string
+}
+
+export interface GenesisParams {
+  projectId: string
+  step: GenesisStep
+  input: GenesisInput
+}
+
+export interface OutlineBatchParams {
+  projectId: string
+  volumeId: string
+  startNo: number
+  count: number
+}
+
+/** T-05 批量章纲的解析结果（渲染层确认后入库） */
+export interface ParsedChapterOutlineDTO {
+  no: number
+  title: string
+  goal: string
+  plotPoints: string[]
+  characters: string[]
+  endingHook: string
+}

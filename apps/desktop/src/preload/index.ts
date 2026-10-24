@@ -30,10 +30,24 @@ const api: InkcraftApi = {
       ipcRenderer.removeListener(IPC.AIEvent, listener)
     }
   },
+  aiGenesis: (params) => ipcRenderer.invoke(IPC.AIGenesis, params),
+  aiOutlineBatch: (params) => ipcRenderer.invoke(IPC.AIOutlineBatch, params),
   snapshotList: (chapterId) => ipcRenderer.invoke(IPC.SnapshotList, chapterId),
   snapshotCreate: (chapterId, kind, title) =>
     ipcRenderer.invoke(IPC.SnapshotCreate, chapterId, kind, title),
-  snapshotRestore: (snapshotId) => ipcRenderer.invoke(IPC.SnapshotRestore, snapshotId)
+  snapshotRestore: (snapshotId) => ipcRenderer.invoke(IPC.SnapshotRestore, snapshotId),
+  codexList: (projectId, type) => ipcRenderer.invoke(IPC.CodexList, projectId, type),
+  codexCreate: (payload) => ipcRenderer.invoke(IPC.CodexCreate, payload),
+  codexUpdate: (payload) => ipcRenderer.invoke(IPC.CodexUpdate, payload),
+  codexDelete: (codexId) => ipcRenderer.invoke(IPC.CodexDelete, codexId),
+  outlineGetBook: (projectId) => ipcRenderer.invoke(IPC.OutlineGetBook, projectId),
+  outlineSaveBook: (payload) => ipcRenderer.invoke(IPC.OutlineSaveBook, payload),
+  outlineGetVolume: (volumeId) => ipcRenderer.invoke(IPC.OutlineGetVolume, volumeId),
+  outlineSaveVolume: (payload) => ipcRenderer.invoke(IPC.OutlineSaveVolume, payload),
+  outlineGetChapter: (projectId, chapterNo) =>
+    ipcRenderer.invoke(IPC.OutlineGetChapter, projectId, chapterNo),
+  outlineListChapters: (projectId) => ipcRenderer.invoke(IPC.OutlineListChapters, projectId),
+  outlineSaveChapter: (payload) => ipcRenderer.invoke(IPC.OutlineSaveChapter, payload)
 }
 
 contextBridge.exposeInMainWorld('inkcraft', api)

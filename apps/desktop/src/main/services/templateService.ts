@@ -9,14 +9,23 @@ interface TemplateRow {
   is_builtin: number
 }
 
-/** 内置模板入库（幂等）：只补缺失的 code，不覆盖用户后续的修改 */
+/**
+ * 内置模板入库（upsert）：每次启动同步为最新内置内容。
+ * 目前没有模板编辑 UI，所有行都是内置态；M2 收尾做模板中心时，
+ * 需引入 user_modified 标记，仅更新未被用户修改的行。
+ */
 export function seedTemplates(db: Database): void {
-  const insert = db.prepare(
-    `INSERT OR IGNORE INTO prompt_templates (code, name, content, variables, is_builtin, updated_at)
-     VALUES (?, ?, ?, ?, 1, ?)`
+  const upsert = db.prepare(
+    `INSERT INTO prompt_templates (code, name, content, variables, is_builtin, updated_at)
+     VALUES (?, ?, ?, ?, 1, ?)
+     ON CONFLICT(code) DO UPDATE SET
+        name = excluded.name,
+        content = excluded.content,
+        variables = excluded.variables,
+        updated_at = excluded.updated_at`
   )
   for (const t of BUILTIN_TEMPLATES) {
-    insert.run(t.code, t.name, t.content, JSON.stringify(extractTemplateVariables(t.content)), Date.now())
+    upsert.run(t.code, t.name, t.content, JSON.stringify(extractTemplateVariables(t.content)), Date.now())
   }
 }
 

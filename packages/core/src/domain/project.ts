@@ -75,3 +75,74 @@ export const polishParamsSchema = z.object({
   directive: z.string().max(2000).optional(),
   contextBefore: z.string().max(3000).optional()
 })
+
+// ---------- 设定集（Codex） ----------
+
+export const CODEX_TYPES = ['world', 'character', 'location', 'faction', 'item', 'rule', 'custom'] as const
+
+export const createCodexSchema = z.object({
+  projectId: z.string().min(1),
+  type: z.enum(CODEX_TYPES),
+  name: z.string().trim().min(1, '名称不能为空').max(50),
+  aliases: z.array(z.string().trim().min(1).max(50)).max(10).optional(),
+  content: z.string().max(20000).optional(),
+  importance: z.enum(['pinned', 'retrieval']).optional()
+})
+
+export const updateCodexSchema = z.object({
+  id: z.string().min(1),
+  type: z.enum(CODEX_TYPES).optional(),
+  name: z.string().trim().min(1, '名称不能为空').max(50).optional(),
+  aliases: z.array(z.string().trim().min(1).max(50)).max(10).optional(),
+  content: z.string().max(20000).optional(),
+  importance: z.enum(['pinned', 'retrieval']).optional()
+})
+
+// ---------- 大纲 ----------
+
+export const saveBookOutlineSchema = z.object({
+  projectId: z.string().min(1),
+  title: z.string().trim().max(100).optional(),
+  content: z.string().max(50000)
+})
+
+export const saveVolumeOutlineSchema = z.object({
+  volumeId: z.string().min(1),
+  title: z.string().trim().max(100).optional(),
+  content: z.string().max(50000)
+})
+
+export const saveChapterOutlineSchema = z.object({
+  projectId: z.string().min(1),
+  volumeId: z.string().min(1),
+  chapterNo: z.number().int().min(1).max(100000),
+  title: z.string().trim().max(100).optional(),
+  goal: z.string().max(2000).optional(),
+  plotPoints: z.array(z.string().trim().min(1).max(500)).max(10).optional(),
+  characters: z.array(z.string().trim().min(1).max(50)).max(10).optional(),
+  endingHook: z.string().max(500).optional(),
+  status: z.enum(['pending', 'confirmed']).optional()
+})
+
+// ---------- 创世与批量章纲 ----------
+
+export const genesisParamsSchema = z.object({
+  projectId: z.string().min(1),
+  step: z.enum(['world', 'characters', 'outline']),
+  input: z.object({
+    idea: z.string().trim().min(1, '请先填写核心创意').max(3000),
+    styleKeywords: z.string().max(200).optional().default(''),
+    hasGoldenFinger: z.boolean().optional().default(false),
+    characterCount: z.number().int().min(1).max(8).optional(),
+    theme: z.string().max(100).optional(),
+    worldContent: z.string().max(30000).optional(),
+    charactersContent: z.string().max(30000).optional()
+  })
+})
+
+export const outlineBatchParamsSchema = z.object({
+  projectId: z.string().min(1),
+  volumeId: z.string().min(1),
+  startNo: z.number().int().min(1).max(100000),
+  count: z.number().int().min(1).max(30)
+})
