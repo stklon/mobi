@@ -162,6 +162,11 @@ export class LibraryService {
     this.db.prepare('DELETE FROM projects WHERE id = ?').run(projectId)
   }
 
+  getProject(id: string): ProjectDTO | null {
+    const row = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined
+    return row ? toProject(row) : null
+  }
+
   private getProjectOrThrow(id: string): ProjectDTO {
     const row = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined
     if (!row) throw new Error('作品不存在或已被删除')

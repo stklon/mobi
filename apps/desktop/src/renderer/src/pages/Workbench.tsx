@@ -1,7 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ChapterDTO, ChapterMetaDTO, ProjectDTO, VolumeDTO } from '@inkcraft/shared'
+import type { Editor } from '@tiptap/react'
+import type {
+  AiEvent,
+  AppSettingsDTO,
+  ChapterDTO,
+  ChapterMetaDTO,
+  PolishOperation,
+  ProjectDTO,
+  SnapshotDTO,
+  VolumeDTO
+} from '@inkcraft/shared'
 import { countWords } from '@inkcraft/core'
-import { ChapterEditor } from '../components/ChapterEditor'
+import {
+  ChapterEditor,
+  appendDraftText,
+  clearDraftMarks,
+  setEditorContent
+} from '../components/ChapterEditor'
+import type { SelectionInfo } from '../components/ChapterEditor'
 
 interface Props {
   project: ProjectDTO
@@ -16,6 +32,33 @@ interface PendingSave {
   content: string
 }
 
+type ContinueGen =
+  | { phase: 'idle' }
+  | { phase: 'generating'; requestId: string }
+  | {
+      phase: 'done'
+      usage: { promptTokens: number; completionTokens: number; estimated: boolean }
+      snapshotId?: string
+    }
+  | { phase: 'error'; message: string }
+
+interface PolishState {
+  phase: 'idle' | 'generating' | 'result'
+  operation: PolishOperation
+  selection: string
+  result: string
+  requestId?: string
+}
+
+const POLISH_LABELS: Record<PolishOperation, string> = {
+  polish: '润色',
+  rewrite: '改写',
+  expand: '扩写',
+  shorten: '缩写'
+}
+
+const WORD_COUNT_OPTIONS = [500, 800, 1000, 1500, 2000]
+
 export function Workbench({ project, onBack }: Props) {
   const [volumes, setVolumes] = useState<VolumeDTO[]>([])
   const [chapters, setChapters] = useState<ChapterMetaDTO[]>([])
@@ -26,9 +69,41 @@ export function Workbench({ project, onBack }: Props) {
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const pendingRef = useRef<PendingSave | null>(null)
 
+  // ---- AI 状态 ----
+  const [settings, setSettings] = useState<AppSettingsDTO | null>(null)
+  const [gen, setGen] = useState<ContinueGen>({ phase: 'idle' })
+  const [polish, setPolish] = useState<PolishState>({
+    phase: 'idle',
+    operation: 'polish',
+    selection: '',
+    result: ''
+  })
+  const [directive, setDirective] = useState('')
+  const [wordCount, setWordCount] = useState(1000)
+  const [snapshots, setSnapshots] = useState<SnapshotDTO[]>([])
+  const [selectedSnapshot, setSelectedSnapshot] = useState('')
+
+  const editorRef = useRef<Editor | null>(null)
+  const continueReqRef = useRef<string | null>(null)
+  const polishReqRef = useRef<string | null>(null)
+  const continueSnapRef = useRef<string | undefined>(undefined)
+  const genPhaseRef = useRef<ContinueGen['phase']>('idle')
+  genPhaseRef.current = gen.phase
+
+  const busy = gen.phase === 'generating' || polish.phase === 'generating'
+
   const loadChapters = useCallback(async () => {
     setChapters(await window.inkcraft.chapterList(project.id))
   }, [project.id])
+
+  const refreshSnapshots = useCallback(async () => {
+    if (!chapter) return
+    setSnapshots(await window.inkcraft.snapshotList(chapter.id))
+  }, [chapter])
+
+  useEffect(() => {
+    void window.inkcraft.getSettings().then(setSettings)
+  }, [])
 
   useEffect(() => {
     void (async () => {
@@ -38,6 +113,12 @@ export function Workbench({ project, onBack }: Props) {
       await loadChapters()
     })()
   }, [project.id, loadChapters])
+
+  useEffect(() => {
+    void refreshSnapshots()
+  }, [refreshSnapshots])
+
+  // ---------- 保存 ----------
 
   const flushSave = useCallback(async (): Promise<void> => {
     const pending = pendingRef.current
@@ -68,7 +149,13 @@ export function Workbench({ project, onBack }: Props) {
     return () => clearTimeout(timer)
   }, [title, content, chapter, flushSave])
 
+  // ---------- 章节切换（生成期间锁定） ----------
+
   const openChapter = async (id: string): Promise<void> => {
+    if (busy) {
+      window.alert('AI 正在生成，请等待完成或先停止')
+      return
+    }
     await flushSave()
     const c = await window.inkcraft.chapterGet(id)
     if (c) {
@@ -76,11 +163,16 @@ export function Workbench({ project, onBack }: Props) {
       setTitle(c.title)
       setContent(c.content)
       setSaveState('saved')
+      setSelectedSnapshot('')
     }
   }
 
   const addChapter = async (): Promise<void> => {
     if (!volumeId) return
+    if (busy) {
+      window.alert('AI 正在生成，请等待完成或先停止')
+      return
+    }
     await flushSave()
     const c = await window.inkcraft.chapterCreate({ projectId: project.id, volumeId })
     await loadChapters()
@@ -88,15 +180,191 @@ export function Workbench({ project, onBack }: Props) {
     setTitle(c.title)
     setContent(c.content)
     setSaveState('saved')
+    setSelectedSnapshot('')
   }
+
+  // ---------- AI 事件（挂载时订阅，按 requestId 分流） ----------
+
+  const handleContinueEvent = useCallback((event: AiEvent): void => {
+    if (event.type === 'chunk') {
+      if (editorRef.current) appendDraftText(editorRef.current, event.text)
+      return
+    }
+    if (event.type === 'finish') {
+      setGen({ phase: 'done', usage: event.usage, snapshotId: continueSnapRef.current })
+      return
+    }
+    if (event.type === 'cancelled') {
+      setGen({ phase: 'idle' })
+      return
+    }
+    setGen({ phase: 'error', message: event.error })
+  }, [])
+
+  const handlePolishEvent = useCallback((event: AiEvent): void => {
+    if (event.type === 'chunk') {
+      setPolish((p) => ({ ...p, result: p.result + event.text }))
+      return
+    }
+    if (event.type === 'finish') {
+      setPolish((p) => ({ ...p, phase: 'result' }))
+      return
+    }
+    if (event.type === 'cancelled') {
+      setPolish((p) => ({ ...p, phase: p.result ? 'result' : 'idle' }))
+      return
+    }
+    setPolish((p) => ({ ...p, phase: p.result ? 'result' : 'idle' }))
+    window.alert(`生成失败：${event.error}`)
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = window.inkcraft.onAiEvent((event) => {
+      if (event.requestId === continueReqRef.current) handleContinueEvent(event)
+      else if (event.requestId === polishReqRef.current) handlePolishEvent(event)
+    })
+    return unsubscribe
+  }, [handleContinueEvent, handlePolishEvent])
+
+  // ---------- 续写 ----------
+
+  const startContinue = useCallback(async (): Promise<void> => {
+    if (!chapter) return
+    if (busy) return
+    if (!settings?.modelConfig.continue) {
+      window.alert('尚未配置「正文续写」模型：请回到书架，点右上角 设置 → 模型分工')
+      return
+    }
+    await flushSave()
+    try {
+      const res = await window.inkcraft.aiContinue({
+        chapterId: chapter.id,
+        directive: directive.trim() || undefined,
+        wordCount
+      })
+      continueReqRef.current = res.requestId
+      continueSnapRef.current = res.snapshotId
+      setGen({ phase: 'generating', requestId: res.requestId })
+    } catch (e) {
+      setGen({ phase: 'error', message: e instanceof Error ? e.message : String(e) })
+    }
+  }, [chapter, busy, settings, directive, wordCount, flushSave])
+
+  // Ctrl+Enter 续写
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault()
+        void startContinue()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [startContinue])
+
+  const acceptDraft = (): void => {
+    if (editorRef.current) clearDraftMarks(editorRef.current)
+    setGen({ phase: 'idle' })
+    setDirective('')
+  }
+
+  const rollbackContinue = async (): Promise<void> => {
+    if (!editorRef.current) return
+    const snapshotId = gen.phase === 'done' ? gen.snapshotId : continueSnapRef.current
+    if (!snapshotId) return
+    if (!window.confirm('回滚到本次 AI 生成前的内容？')) return
+    const restored = await window.inkcraft.snapshotRestore(snapshotId)
+    setEditorContent(editorRef.current, restored.content)
+    setContent(restored.content)
+    setGen({ phase: 'idle' })
+    void refreshSnapshots()
+    void loadChapters()
+  }
+
+  // ---------- 划词润色 ----------
+
+  const startPolish = useCallback(
+    async (operation: PolishOperation, info: SelectionInfo): Promise<void> => {
+      if (!chapter) return
+      if (busy) {
+        window.alert('AI 正在生成，请等待完成或先停止')
+        return
+      }
+      if (!settings?.modelConfig.polish) {
+        window.alert('尚未配置「润色 / 扩写」模型：请回到书架，点右上角 设置 → 模型分工')
+        return
+      }
+      await flushSave()
+      try {
+        const res = await window.inkcraft.aiPolish({
+          chapterId: chapter.id,
+          selection: info.selection,
+          operation,
+          contextBefore: info.contextBefore
+        })
+        polishReqRef.current = res.requestId
+        setPolish({ phase: 'generating', operation, selection: info.selection, result: '' })
+      } catch (e) {
+        window.alert(`发起失败：${e instanceof Error ? e.message : String(e)}`)
+      }
+    },
+    [chapter, busy, settings, flushSave]
+  )
+
+  const applyPolish = async (): Promise<void> => {
+    if (!chapter || !editorRef.current || !polish.result) return
+    const replaced = content.replace(polish.selection, polish.result)
+    if (replaced === content) {
+      window.alert('原选区内容已变化，无法自动替换。生成结果可手动复制粘贴。')
+      return
+    }
+    await window.inkcraft.snapshotCreate(chapter.id, 'before_polish', `${POLISH_LABELS[polish.operation]}前`)
+    setEditorContent(editorRef.current, replaced)
+    setContent(replaced)
+    setPolish({ phase: 'idle', operation: polish.operation, selection: '', result: '' })
+    void refreshSnapshots()
+  }
+
+  // ---------- 快照 ----------
+
+  const restoreSnapshot = async (): Promise<void> => {
+    if (!selectedSnapshot || !editorRef.current) return
+    if (!window.confirm('用所选快照覆盖当前章节内容？当前内容可先手动留快照。')) return
+    if (busy) {
+      window.alert('AI 正在生成，请等待完成或先停止')
+      return
+    }
+    const restored = await window.inkcraft.snapshotRestore(selectedSnapshot)
+    setEditorContent(editorRef.current, restored.content)
+    setContent(restored.content)
+    setTitle(restored.title)
+    setGen({ phase: 'idle' })
+    void loadChapters()
+    void refreshSnapshots()
+  }
+
+  // ---------- 渲染 ----------
 
   const visibleChapters = chapters.filter((c) => c.volumeId === volumeId)
   const currentWordCount = countWords(content)
+  const continueModel = settings?.modelConfig.continue
+  const continueProvider = settings?.providers.find((p) => p.id === continueModel?.providerId)
+  const polishModel = settings?.modelConfig.polish
+  const polishProvider = settings?.providers.find((p) => p.id === polishModel?.providerId)
 
   return (
     <div className="workbench">
       <header className="workbench-header">
-        <button className="ghost" onClick={() => void flushSave().then(onBack)}>
+        <button
+          className="ghost"
+          onClick={() => {
+            if (busy) {
+              window.alert('AI 正在生成，请等待完成或先停止')
+              return
+            }
+            void flushSave().then(onBack)
+          }}
+        >
           ← 书架
         </button>
         <div className="workbench-title">
@@ -115,7 +383,7 @@ export function Workbench({ project, onBack }: Props) {
                 </option>
               ))}
             </select>
-            <button onClick={() => void addChapter()} disabled={!volumeId}>
+            <button onClick={() => void addChapter()} disabled={!volumeId || busy}>
               + 新章
             </button>
           </div>
@@ -131,7 +399,9 @@ export function Workbench({ project, onBack }: Props) {
                 <span className="chapter-words">{c.wordCount}字</span>
               </li>
             ))}
-            {visibleChapters.length === 0 && <li className="chapter-empty">暂无章节，点击「+ 新章」开始创作</li>}
+            {visibleChapters.length === 0 && (
+              <li className="chapter-empty">暂无章节，点击「+ 新章」开始创作</li>
+            )}
           </ul>
         </aside>
 
@@ -156,6 +426,8 @@ export function Workbench({ project, onBack }: Props) {
                   chapterId={chapter.id}
                   content={content}
                   onContentChange={setContent}
+                  editorRef={editorRef}
+                  onPolishRequest={(op, info) => void startPolish(op, info)}
                 />
               </div>
             </>
@@ -167,14 +439,112 @@ export function Workbench({ project, onBack }: Props) {
         </main>
 
         <aside className="ai-panel">
-          <h3>AI 面板</h3>
-          <p className="ai-panel-hint">M2 里程碑接入：</p>
-          <ul>
-            <li>模型 Provider 配置</li>
-            <li>提示词模板引擎</li>
-            <li>RAG 上下文组装</li>
-            <li>流式续写（Ctrl+Enter）</li>
-          </ul>
+          <h3>AI 续写</h3>
+          {continueModel && continueProvider ? (
+            <p className="model-line">
+              {continueProvider.name} · {continueModel.model}
+            </p>
+          ) : (
+            <p className="error">未配置模型：书架 → 设置 → 模型分工（正文续写）</p>
+          )}
+          <div className="ai-controls">
+            <select value={wordCount} onChange={(e) => setWordCount(Number(e.target.value))}>
+              {WORD_COUNT_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {n} 字
+                </option>
+              ))}
+            </select>
+            <input
+              placeholder="本次指令（可选）"
+              value={directive}
+              maxLength={2000}
+              onChange={(e) => setDirective(e.target.value)}
+            />
+          </div>
+          {gen.phase === 'generating' ? (
+            <button className="stop-btn" onClick={() => void window.inkcraft.aiCancel(gen.phase === 'generating' ? gen.requestId : '')}>
+              ■ 停止生成
+            </button>
+          ) : (
+            <button disabled={!chapter || !continueModel} onClick={() => void startContinue()}>
+              续写（Ctrl+Enter）
+            </button>
+          )}
+          {gen.phase === 'generating' && <p className="streaming">正在流式生成，内容实时插入正文末尾…</p>}
+          {gen.phase === 'done' && (
+            <div className="gen-result">
+              <p className="ok">
+                完成：输入 ≈{gen.usage.promptTokens} / 输出 ≈{gen.usage.completionTokens} tokens（估算）
+              </p>
+              <div className="gen-actions">
+                <button onClick={acceptDraft}>采纳</button>
+                <button className="danger" onClick={() => void rollbackContinue()}>
+                  回滚本次
+                </button>
+              </div>
+            </div>
+          )}
+          {gen.phase === 'error' && <p className="error">{gen.message}</p>}
+
+          <h3>划词工具</h3>
+          {polishModel && polishProvider ? (
+            <p className="model-line">
+              {polishProvider.name} · {polishModel.model}
+            </p>
+          ) : (
+            <p className="model-line">提示：需在设置中配置「润色 / 扩写」场景模型</p>
+          )}
+          {polish.phase === 'idle' ? (
+            <p className="ai-panel-hint">选中正文中的文字，浮出菜单：润色 / 改写 / 扩写 / 缩写</p>
+          ) : (
+            <div className="polish-box">
+              <div className="polish-head">
+                {POLISH_LABELS[polish.operation]}
+                {polish.phase === 'generating' ? '中…' : '结果'}
+              </div>
+              <pre className="polish-result">{polish.result || '…'}</pre>
+              <div className="gen-actions">
+                {polish.phase === 'generating' ? (
+                  <button
+                    className="stop-btn"
+                    onClick={() =>
+                      void window.inkcraft.aiCancel(polish.requestId ?? '')
+                    }
+                  >
+                    ■ 停止
+                  </button>
+                ) : (
+                  <>
+                    <button onClick={() => void applyPolish()}>替换选区</button>
+                    <button
+                      className="ghost"
+                      onClick={() =>
+                        setPolish({ phase: 'idle', operation: polish.operation, selection: '', result: '' })
+                      }
+                    >
+                      丢弃
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          <h3>快照</h3>
+          <div className="snapshot-row">
+            <select value={selectedSnapshot} onChange={(e) => setSelectedSnapshot(e.target.value)}>
+              <option value="">选择快照…</option>
+              {snapshots.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {new Date(s.createdAt).toLocaleString()} · {s.title || s.kind}（{s.wordCount}字）
+                </option>
+              ))}
+            </select>
+            <button className="ghost" disabled={!selectedSnapshot || busy} onClick={() => void restoreSnapshot()}>
+              恢复
+            </button>
+          </div>
         </aside>
       </div>
     </div>

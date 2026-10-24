@@ -1,17 +1,23 @@
 import type {
+  AiEvent,
+  AiStartResult,
   AppInfoDTO,
   AppSettingsDTO,
   ChapterDTO,
   ChapterMetaDTO,
+  ContinueParams,
   CreateChapterPayload,
   CreateProjectPayload,
   CreateProviderPayload,
   ModelConfigDTO,
+  PolishParams,
   ProjectDTO,
   ProviderDTO,
   ProviderTestPayload,
   ProviderTestResult,
   SaveChapterPayload,
+  SnapshotDTO,
+  SnapshotKind,
   UpdateProjectPayload,
   UpdateProviderPayload,
   VolumeDTO
@@ -35,7 +41,14 @@ export const IPC = {
   ProviderUpdate: 'provider:update',
   ProviderDelete: 'provider:delete',
   ProviderTest: 'provider:test',
-  ModelConfigSave: 'model-config:save'
+  ModelConfigSave: 'model-config:save',
+  AIContinue: 'ai:continue',
+  AIPolish: 'ai:polish',
+  AICancel: 'ai:cancel',
+  AIEvent: 'ai:event',
+  SnapshotList: 'snapshot:list',
+  SnapshotCreate: 'snapshot:create',
+  SnapshotRestore: 'snapshot:restore'
 } as const
 
 export interface InkcraftApi {
@@ -56,4 +69,12 @@ export interface InkcraftApi {
   providerDelete(providerId: string): Promise<void>
   providerTest(payload: ProviderTestPayload): Promise<ProviderTestResult>
   saveModelConfig(config: ModelConfigDTO): Promise<ModelConfigDTO>
+  aiContinue(params: ContinueParams): Promise<AiStartResult>
+  aiPolish(params: PolishParams): Promise<AiStartResult>
+  aiCancel(requestId: string): Promise<void>
+  /** 全局 AI 事件流（渲染层挂载时订阅，按 requestId 过滤，避免 invoke 后才订阅丢事件） */
+  onAiEvent(cb: (event: AiEvent) => void): () => void
+  snapshotList(chapterId: string): Promise<SnapshotDTO[]>
+  snapshotCreate(chapterId: string, kind: SnapshotKind, title: string): Promise<SnapshotDTO>
+  snapshotRestore(snapshotId: string): Promise<ChapterDTO>
 }

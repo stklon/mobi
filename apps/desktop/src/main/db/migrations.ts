@@ -62,6 +62,45 @@ const migrations: Migration[] = [
         updated_at INTEGER NOT NULL
       );
     `
+  },
+  {
+    version: 3,
+    name: 'ai-templates-logs-snapshots',
+    sql: `
+      CREATE TABLE prompt_templates (
+        code TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        content TEXT NOT NULL,
+        variables TEXT NOT NULL DEFAULT '[]',
+        is_builtin INTEGER NOT NULL DEFAULT 1,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE ai_logs (
+        id TEXT PRIMARY KEY,
+        request_id TEXT NOT NULL,
+        scene TEXT NOT NULL,
+        template_code TEXT,
+        provider_id TEXT,
+        model TEXT,
+        prompt_tokens INTEGER NOT NULL DEFAULT 0,
+        completion_tokens INTEGER NOT NULL DEFAULT 0,
+        latency_ms INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL,
+        error TEXT,
+        created_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE snapshots (
+        id TEXT PRIMARY KEY,
+        chapter_id TEXT NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        content TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_snapshots_chapter ON snapshots(chapter_id, created_at);
+    `
   }
 ]
 

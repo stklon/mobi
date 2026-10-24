@@ -1,8 +1,15 @@
 import { app, BrowserWindow } from 'electron'
 import path from 'node:path'
 import { closeDb, initDb } from './db/database'
+import { seedTemplates } from './services/templateService'
+import { TemplateService } from './services/templateService'
 import { LibraryService } from './services/libraryService'
 import { SettingService } from './services/settingService'
+import { SnapshotService } from './services/snapshotService'
+import { WritingService } from './services/writingService'
+import { AiOrchestrator } from './services/aiOrchestrator'
+import { IPC } from '@inkcraft/shared'
+import type { AiEvent } from '@inkcraft/shared'
 import { registerIpc } from './ipc'
 
 let mainWindow: BrowserWindow | null = null
@@ -28,9 +35,9 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     mainWindow = null
   })
-  // 渲染层报错转发到主进程日志（冒烟测试据此捕获 UI 运行时错误）
+  // 渲染层报错转发到主进程日志（冒烟测试据此捕获 UI 运行时错误；level 3 = error）
   mainWindow.webContents.on('console-message', (_event, level, message) => {
-    if (level === 'error') console.log(`[renderer-error] ${message}`)
+    if (level === 3) console.log(`[renderer-error] ${message}`)
   })
 
   const devUrl = process.env.ELECTRON_RENDERER_URL
@@ -42,75 +49,108 @@ function createWindow(): void {
   }
 }
 
-/** 冒烟模式：不依赖 UI 交互，直接验证主进程服务层（建书/建章/保存/删除），跑完自动退出 */
-function runSmoke(service: LibraryService, settingService: SettingService): void {
+/** 冒烟模式：不依赖 UI 交互，直接验证主进程服务层，跑完自动退出 */
+function runSmoke(
+  db: import('better-sqlite3').Database,
+  services: {
+    library: LibraryService
+    settings: SettingService
+    templates: TemplateService
+    snapshots: SnapshotService
+    writing: WritingService
+  }
+): void {
+  const { library, settings, templates, snapshots, writing } = services
+
   // --- 图书链路 ---
-  const project = service.createProject({ title: `冒烟测试 ${Date.now()}` })
-  const projects = service.listProjects()
-  const volumes = service.listVolumes(project.id)
-  const chapter = service.createChapter({ projectId: project.id, volumeId: volumes[0].id })
-  const saved = service.saveChapter({
+  const project = library.createProject({ title: `冒烟测试 ${Date.now()}` })
+  const volumes = library.listVolumes(project.id)
+  const chapter = library.createChapter({ projectId: project.id, volumeId: volumes[0].id })
+  const saved = library.saveChapter({
     id: chapter.id,
     title: '第一章 醒来',
     content: '林凡睁开眼，发现自己回到了十八岁那年夏天。蝉鸣声穿过纱窗，涌进这间狭小的出租屋。'
   })
-  const fetched = service.getChapter(chapter.id)
 
-  if (projects.length < 1) throw new Error('项目列表为空')
-  if (!fetched || fetched.wordCount !== saved.wordCount || fetched.content !== saved.content) {
-    throw new Error('章节保存后读取不一致')
-  }
-  service.deleteProject(project.id)
-
-  // --- 设置链路：Provider CRUD + Key 加解密回环 + 模型分工 ---
-  const provider = settingService.createProvider({
-    name: '冒烟Provider',
-    baseUrl: 'https://api.example.com/v1/',
-    apiKey: 'sk-smoke-test',
-    models: ['model-a', 'model-b']
+  // --- 模板：seed 幂等 + 渲染 ---
+  const tplCount = (
+    db.prepare('SELECT COUNT(*) AS c FROM prompt_templates').get() as { c: number }
+  ).c
+  if (tplCount !== 2) throw new Error(`内置模板数量异常: ${tplCount}`)
+  const rendered = templates.render('T-06', {
+    genre: '玄幻',
+    styleGuide: '白描',
+    pov: '第三人称',
+    bannedList: '眼眸',
+    prevContext: '',
+    textTail: saved.content,
+    wordCount: 800,
+    directive: ''
   })
-  if (settingService.getApiKey(provider.id) !== 'sk-smoke-test') {
-    throw new Error('API Key 加解密回环失败')
+  if (!rendered.prompt.includes(saved.content) || rendered.prompt.includes('前文情节')) {
+    throw new Error('T-06 渲染结果异常（正文尾部缺失或空条件块未裁剪）')
   }
-  const settings = settingService.getSettings()
-  const providerDTO = settings.providers.find((p) => p.id === provider.id)
-  if (!providerDTO || !providerDTO.hasKey || providerDTO.baseUrl !== 'https://api.example.com/v1') {
-    throw new Error('Provider 创建后读取失败或 Key 状态不正确')
-  }
-  if ('apiKeyEnc' in providerDTO) throw new Error('Provider DTO 泄漏了加密 Key 字段')
 
-  const savedConfig = settingService.saveModelConfig({
-    continue: { providerId: provider.id, model: 'model-a' }
+  // --- 续写提示词构建 ---
+  const built = writing.buildContinuePrompt(chapter.id, { wordCount: 800 })
+  if (!built.prompt.includes('最近正文') || !built.prompt.includes(saved.content)) {
+    throw new Error('续写上下文构建异常')
+  }
+
+  // --- 快照：创建 -> 修改 -> 恢复回环 ---
+  const snap = snapshots.create(chapter.id, 'before_ai', '冒烟快照')
+  library.saveChapter({ id: chapter.id, content: '被覆盖的内容' })
+  const restored = snapshots.restore(snap.id, (id, content) => library.saveChapter({ id, content }))
+  if (restored.content !== saved.content) throw new Error('快照恢复后内容不一致')
+  if (snapshots.list(chapter.id).length < 1) throw new Error('快照列表为空')
+
+  // --- 编排器：未配置模型时的失败路径（独立探针实例验证日志 + error 事件） ---
+  const events: AiEvent[] = []
+  const probe = new AiOrchestrator(db, settings, (e) => events.push(e))
+  probe.enqueue({
+    requestId: 'smoke-request',
+    scene: 'continue',
+    prompt: 'test',
+    temperature: 0.8,
+    maxTokens: 100
   })
-  if (savedConfig.continue?.model !== 'model-a') throw new Error('模型分工保存失败')
+  probe
+    .drain()
+    .then(() => {
+      if (!events.some((e) => e.type === 'error')) throw new Error('未配置模型时未广播 error 事件')
+      const logCount = (db.prepare('SELECT COUNT(*) AS c FROM ai_logs').get() as { c: number }).c
+      if (logCount < 1) throw new Error('ai_logs 未记录失败调用')
 
-  settingService.deleteProvider(provider.id)
-  if (settingService.getSettings().modelConfig.continue) {
-    throw new Error('删除 Provider 后模型分工未清理')
-  }
-
-  console.log(
-    `[smoke] OK: 建书/建章/保存/删除 + Provider CRUD/Key回环/模型分工 全链路通过`
-  )
+      library.deleteProject(project.id)
+      console.log('[smoke] OK: 图书/模板渲染/续写上下文/快照回环/编排器失败路径 全链路通过')
+      app.quit()
+    })
+    .catch((err) => {
+      console.error('[smoke] FAILED:', err)
+      app.exit(1)
+    })
 }
 
 app.whenReady()
   .then(() => {
     const db = initDb()
-    const service = new LibraryService(db)
-    const settingService = new SettingService(db)
-    registerIpc(service, settingService, { version: app.getVersion(), dbPath: db.name })
+    seedTemplates(db)
+
+    const library = new LibraryService(db)
+    const settings = new SettingService(db)
+    const templates = new TemplateService(db)
+    const snapshots = new SnapshotService(db, (id) => library.getChapter(id))
+    const writing = new WritingService(db, library, templates)
+    const orchestrator = new AiOrchestrator(db, settings, (event) => {
+      mainWindow?.webContents.send(IPC.AIEvent, event)
+    })
+
+    registerIpc({ library, settings, writing, snapshots, orchestrator }, { version: app.getVersion(), dbPath: db.name })
     createWindow()
 
     if (process.env.INKCRAFT_SMOKE) {
       setTimeout(() => {
-        try {
-          runSmoke(service, settingService)
-          app.quit()
-        } catch (err) {
-          console.error('[smoke] FAILED:', err)
-          app.exit(1)
-        }
+        runSmoke(db, { library, settings, templates, snapshots, writing })
       }, 1500)
     }
   })

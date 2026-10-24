@@ -127,3 +127,52 @@ export interface ProviderTestResult {
   models: string[]
   error?: string
 }
+
+// ---------- AI 生成 ----------
+
+export type AiEvent =
+  | { type: 'chunk'; requestId: string; text: string }
+  | {
+      type: 'finish'
+      requestId: string
+      usage: { promptTokens: number; completionTokens: number; estimated: boolean }
+    }
+  | { type: 'cancelled'; requestId: string }
+  | { type: 'error'; requestId: string; error: string }
+
+export interface ContinueParams {
+  chapterId: string
+  /** 作者即时指令（如：本段写打斗，主角压着打） */
+  directive?: string
+  wordCount?: number
+}
+
+export type PolishOperation = 'polish' | 'rewrite' | 'expand' | 'shorten'
+
+export interface PolishParams {
+  chapterId: string
+  selection: string
+  operation: PolishOperation
+  directive?: string
+  /** 选区前的正文（供模型理解上下文，不会被改写） */
+  contextBefore?: string
+}
+
+export interface AiStartResult {
+  requestId: string
+  /** 生成前的章节快照 id（用于回滚） */
+  snapshotId?: string
+}
+
+// ---------- 快照 ----------
+
+export type SnapshotKind = 'before_ai' | 'before_polish' | 'manual'
+
+export interface SnapshotDTO {
+  id: string
+  chapterId: string
+  kind: SnapshotKind
+  title: string
+  wordCount: number
+  createdAt: number
+}

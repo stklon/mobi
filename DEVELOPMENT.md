@@ -59,19 +59,33 @@ node install.js
 
 ## 当前进度（对照开发文档里程碑）
 
-- [x] M1-W1~W2：monorepo 骨架、书架/项目 CRUD、卷/章节 CRUD、编辑器 + 1s 防抖自动保存 + 字数统计、SQLite 迁移框架、typed IPC、冒烟测试
-- [x] M1-W3~W4：设置页（Provider CRUD + API Key DPAPI 加密存储 + OpenAI 兼容连通性测试 + 模型分工五场景）、TipTap 富文本编辑器（撤销重做/纯文本段落模型）、Git 仓库初始化
-- [ ] M2：AIOrchestrator（流式/队列/重试）、PromptEngine（模板渲染/Token 预算）、基础续写（无 RAG）、划词润色、快照回滚
+- [x] M1：monorepo 骨架、书架/项目 CRUD、卷/章节 CRUD、TipTap 编辑器 + 自动保存、设置页（Provider + Key 加密 + 模型分工）、Git 仓库
+- [x] M2 核心：AIOrchestrator（SSE 流式/串行队列/取消/首字节超时/连接类重试/ai_logs）、PromptEngine（模板入库 seed + {{var}}/{{#if}} 渲染 + token 估算）、**Ctrl+Enter 流式续写**（草稿态高亮 + 采纳/回滚本次）、**划词工具**（BubbleMenu 润色/改写/扩写/缩写 + 替换选区）、快照系统（AI 生成前自动快照 + 手动恢复）
+- [ ] M2 收尾（可选）：提示词透明度面板（查看实际发送的完整提示词）、模板中心编辑 UI、用量统计 UI
 - [ ] M3：创世向导、Codex、三层大纲
 - [ ] M4：RAG 管线、记忆系统、导出
 - [ ] M5：压测与打包
 
+## AI 生成流程速览（M2 实现）
+
+```
+渲染层 Ctrl+Enter / 划词菜单
+  → IPC ai:continue / ai:polish（主进程同步构建上下文 + 渲染模板 + 建快照，立即返回 requestId）
+  → AiOrchestrator 串行队列 → OpenAI 兼容 /chat/completions（SSE 流式）
+  → chunk/finish/cancelled/error 事件经 IPC ai:event 广播
+  → 续写：appendDraftText 逐块插入编辑器末尾（aiDraft mark 高亮）
+     润色：结果流式显示在 AI 面板，「替换选区」时字符串级替换（规避位置漂移）
+```
+
 ## 已知技术决策备忘
 
 1. **better-sqlite3 v13（N-API）**：不再需要为 Electron 重编译原生模块；代价是锁死大版本（v12 及以下为旧 ABI 机制）。
-2. **单库文件**：V1 实现为单 `library.db`（projects/volumes/chapters/settings 表），较开发文档的"单书单库"简化；SQLite 处理百万字无压力，如后续需要再拆分。
-3. **pnpm 12**：构建脚本白名单（`onlyBuiltDependencies`）已迁至 `pnpm-workspace.yaml`；`pnpm typecheck` 会先构建 shared/core（desktop 依赖其 dist 类型）。
+2. **单库文件**：V1 实现为单 `library.db`，较开发文档的"单书单库"简化；SQLite 处理百万字无压力，如后续需要再拆分。
+3. **pnpm 12**：构建脚本白名单（`onlyBuiltDependencies`）已迁至 `pnpm-workspace.yaml`；`pnpm typecheck` 会先构建 shared/core（desktop 依赖其 dist 类型）；传递依赖必须显式声明（如 @tiptap/core）。
 4. **electron-vite 6 + Vite 8（rolldown）**：main/preload 输出 CJS 到 `out/`，`main` 字段指向 `out/main/index.js`。
-5. **API Key 安全**：经 Electron `safeStorage`（Windows DPAPI）加密后存入 settings 表；渲染层只拿到 `hasKey` 布尔值，解密仅在主进程（`SettingService.getApiKey`，M2 的 AI 编排器调用）。
-6. **TipTap 纯文本模型**：章节存储始终是纯文本（`\n` = 段落分隔），StarterKit 关闭了全部格式化/列表/链接扩展，仅保留 document/paragraph/text/undoRedo/dropcursor——保证导出与后续 RAG 切片不依赖富文本结构。
+5. **API Key 安全**：经 Electron `safeStorage`（Windows DPAPI）加密后存入 settings 表；渲染层只拿到 `hasKey` 布尔值，解密仅在主进程（`SettingService.getApiKey`）。
+6. **TipTap 纯文本模型**：章节存储始终是纯文本（`\n` = 段落分隔），StarterKit 关闭全部格式化扩展；aiDraft 草稿高亮是会话级 mark，不入库。
 7. **Git 身份**：repo 级占位身份 `inkcraft-dev <dev@inkcraft.local>`，提交前请改为自己的 `git config user.name/user.email`。
+8. **AI 重试语义**：只有「拿到响应体之前」的失败（连接/429/5xx）才重试；流一旦开始，中断即最终失败（已收内容保留在编辑器，靠快照回滚），避免重试导致渲染层内容重复。
+9. **token 用量为估算值**：SSE 不强依赖 usage 字段（兼容各家），prompt/completion 按中文 ~1.5 字/token 折算。
+10. **console-message 的 level 是数字**：Electron 43 类型定义中 3 = error（不是字符串 'error'）。

@@ -61,3 +61,17 @@ export const modelConfigSchema = z.object({
   providerId: z.string().min(1),
   model: z.string().min(1)
 })
+
+export const continueParamsSchema = z.object({
+  chapterId: z.string().min(1),
+  directive: z.string().max(2000).optional(),
+  wordCount: z.number().int().min(100).max(6000).optional()
+})
+
+export const polishParamsSchema = z.object({
+  chapterId: z.string().min(1),
+  selection: z.string().min(1).max(20000),
+  operation: z.enum(['polish', 'rewrite', 'expand', 'shorten']),
+  directive: z.string().max(2000).optional(),
+  contextBefore: z.string().max(3000).optional()
+})
