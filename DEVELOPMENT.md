@@ -106,6 +106,29 @@ pnpm smoke                                 # 全链路冒烟（也可用于验�
 
 - pnpm 重装（hoisted 布局变更等）后 Electron 二进制可能丢失（副作用缓存重放问题）：`cd node_modules\electron && set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ && node install.js` 可恢复。
 
+## 双协议支持与真实 E2E（V1.1）
+
+Provider 支持 **openai**（`/chat/completions`）与 **anthropic**（`/v1/messages`）两种协议：
+- GLM Coding Plan（Z.ai / 智谱）只提供 Anthropic 协议端点——设置页添加 Provider 时点「Z.ai Coding Plan」/「智谱 Coding Plan（国内）」预设，粘贴在
+  `https://z.ai/manage-apikey/apikey-list`（或 bigmodel.cn 编程计划页）生成的 API Key 即可；
+- Anthropic 协议下 usage 为服务端真实值（finish 事件 estimated=false）；`/v1/models` 不可用时连通性测试自动降级为最小消息调用，模型名可在「模型分工」手输（datalist）；
+- 嵌入（RAG 向量通道）仅 OpenAI 协议；Coding Plan 无嵌入端点时不配置即可，RAG 自动走实体检索。
+
+### E2E 真实链路测试
+
+```bash
+# 1. 无 Key 验证（本地 mock 服务器，双协议可测）：
+node scripts/mock-llm-server.mjs          # 窗口A
+pnpm --filter @inkcraft/desktop e2e:mock  # 窗口B
+
+# 2. 真实模型（先在应用设置页配好 Provider 与 Key）：
+set INKCRAFT_E2E=1
+set INKCRAFT_E2E_PROVIDER=Z.ai Coding Plan
+pnpm --filter @inkcraft/desktop start
+# 走完整链路：续写/润色/摘要/批量章纲 + 章纲JSON解析 + 首字延迟/真实token统计；
+# 结束后自动恢复原模型分工配置并清理测试书。
+```
+
 ## M4 续写上下文注入（T-06 实际发送的区块）
 
 ```

@@ -15,6 +15,7 @@ interface ProviderForm {
   id?: string
   name: string
   baseUrl: string
+  protocol: 'openai' | 'anthropic'
   apiKey: string
   models: string[]
   /** 进入编辑时的原始值，用于判断「测试」走已存配置还是表单值 */
@@ -27,10 +28,16 @@ const SCENE_ROWS: { key: ModelScene; label: string; hint: string }[] = [
   { key: 'continue', label: '正文续写', hint: '建议长上下文高质量模型' },
   { key: 'polish', label: '润色 / 扩写', hint: '改写与扩写选区' },
   { key: 'extract', label: '摘要与提取', hint: '章后归档等后台任务，建议廉价快速模型' },
-  { key: 'embedding', label: '嵌入（RAG 检索）', hint: '走 /embeddings 接口，如 bge / text-embedding 系列；不配则 RAG 降级为实体关键词检索' }
+  { key: 'embedding', label: '嵌入（RAG 检索）', hint: '走 /embeddings 接口（仅 OpenAI 协议），如 bge / text-embedding 系列；不配则 RAG 降级为实体关键词检索' }
 ]
 
-const EMPTY_FORM: ProviderForm = { name: '', baseUrl: '', apiKey: '', models: [], origBaseUrl: '' }
+const PROVIDER_PRESETS: { label: string; name: string; baseUrl: string; protocol: 'openai' | 'anthropic' }[] = [
+  { label: 'Z.ai Coding Plan', name: 'Z.ai Coding Plan', baseUrl: 'https://api.z.ai/api/anthropic', protocol: 'anthropic' },
+  { label: '智谱 Coding Plan（国内）', name: '智谱 Coding Plan', baseUrl: 'https://open.bigmodel.cn/api/anthropic', protocol: 'anthropic' },
+  { label: 'DeepSeek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', protocol: 'openai' }
+]
+
+const EMPTY_FORM: ProviderForm = { name: '', baseUrl: '', protocol: 'openai', apiKey: '', models: [], origBaseUrl: '' }
 
 export function Settings({ onBack }: Props) {
   const [settings, setSettings] = useState<AppSettingsDTO | null>(null)
@@ -57,7 +64,15 @@ export function Settings({ onBack }: Props) {
   }
 
   const openEdit = (p: ProviderDTO): void => {
-    setForm({ id: p.id, name: p.name, baseUrl: p.baseUrl, apiKey: '', models: p.models, origBaseUrl: p.baseUrl })
+    setForm({
+      id: p.id,
+      name: p.name,
+      baseUrl: p.baseUrl,
+      protocol: p.protocol,
+      apiKey: '',
+      models: p.models,
+      origBaseUrl: p.baseUrl
+    })
     setTestResult(null)
     setError('')
   }
@@ -71,10 +86,12 @@ export function Settings({ onBack }: Props) {
       // 编辑态且未改 Key、未改地址时，直接用已存储配置测试（Key 不出主进程）
       const useStored = Boolean(form.id) && !form.apiKey && form.baseUrl === form.origBaseUrl
       const result = await window.inkcraft.providerTest(
-        useStored ? { id: form.id } : { baseUrl: form.baseUrl, apiKey: form.apiKey }
+        useStored
+          ? { id: form.id }
+          : { baseUrl: form.baseUrl, apiKey: form.apiKey, protocol: form.protocol }
       )
       setTestResult(result)
-      if (result.ok) setForm({ ...form, models: result.models })
+      if (result.ok) setForm({ ...form, models: result.models.length > 0 ? result.models : form.models })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -92,6 +109,7 @@ export function Settings({ onBack }: Props) {
           id: form.id,
           name: form.name,
           baseUrl: form.baseUrl,
+          protocol: form.protocol,
           ...(form.apiKey ? { apiKey: form.apiKey } : {}),
           models: form.models
         })
@@ -99,6 +117,7 @@ export function Settings({ onBack }: Props) {
         await window.inkcraft.providerCreate({
           name: form.name,
           baseUrl: form.baseUrl,
+          protocol: form.protocol,
           ...(form.apiKey ? { apiKey: form.apiKey } : {}),
           models: form.models
         })
@@ -164,6 +183,9 @@ export function Settings({ onBack }: Props) {
               <div className="provider-info">
                 <div className="provider-name">
                   {p.name}
+                  <span className="provider-key-badge">
+                    {p.protocol === 'anthropic' ? 'Anthropic 协议' : 'OpenAI 协议'}
+                  </span>
                   <span className="provider-key-badge">{p.hasKey ? '已配置 Key' : '无 Key'}</span>
                 </div>
                 <div className="provider-url">{p.baseUrl}</div>
@@ -192,20 +214,43 @@ export function Settings({ onBack }: Props) {
         {form ? (
           <div className="provider-form">
             <h3>{form.id ? '编辑 Provider' : '添加 Provider'}</h3>
+            {!form.id && (
+              <div className="preset-row">
+                {PROVIDER_PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    className="ghost"
+                    onClick={() => setForm({ ...form, name: p.name, baseUrl: p.baseUrl, protocol: p.protocol })}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <label>
               名称
               <input
                 value={form.name}
                 maxLength={50}
-                placeholder="如 DeepSeek / 本地 Ollama"
+                placeholder="如 DeepSeek / Z.ai Coding Plan"
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
+            </label>
+            <label>
+              接口协议
+              <select
+                value={form.protocol}
+                onChange={(e) => setForm({ ...form, protocol: e.target.value as 'openai' | 'anthropic' })}
+              >
+                <option value="openai">OpenAI 兼容（/chat/completions）</option>
+                <option value="anthropic">Anthropic（/v1/messages）</option>
+              </select>
             </label>
             <label>
               Base URL
               <input
                 value={form.baseUrl}
-                placeholder="https://api.deepseek.com/v1"
+                placeholder={form.protocol === 'anthropic' ? 'https://api.z.ai/api/anthropic' : 'https://api.deepseek.com/v1'}
                 onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
               />
             </label>
@@ -294,20 +339,21 @@ export function Settings({ onBack }: Props) {
                     </select>
                   </td>
                   <td>
-                    <select
+                    <input
+                      className="scene-model-input"
+                      list={`models-${key}`}
                       value={current?.model ?? ''}
                       disabled={!provider}
-                      onChange={(e) => void setScene(key, current!.providerId, e.target.value)}
-                    >
-                      <option value="">请选择</option>
+                      placeholder={provider?.models[0] ?? '手输模型名'}
+                      onChange={(e) => void setScene(key, current!.providerId, e.target.value.trim())}
+                    />
+                    <datalist id={`models-${key}`}>
                       {(provider?.models ?? []).map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
+                        <option key={m} value={m} />
                       ))}
-                    </select>
+                    </datalist>
                     {provider && provider.models.length === 0 && (
-                      <div className="scene-hint">该 Provider 还没有模型列表，请先刷新</div>
+                      <div className="scene-hint">无模型列表（Anthropic 协议常见），直接手输，如 GLM-5.3</div>
                     )}
                   </td>
                 </tr>

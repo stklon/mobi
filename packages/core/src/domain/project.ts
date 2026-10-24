@@ -45,6 +45,7 @@ const baseUrlSchema = z
 export const createProviderSchema = z.object({
   name: z.string().trim().min(1, '名称不能为空').max(50),
   baseUrl: baseUrlSchema,
+  protocol: z.enum(['openai', 'anthropic']).optional(),
   apiKey: z.string().max(500).optional(),
   models: z.array(z.string().min(1)).max(1000).optional()
 })
@@ -53,6 +54,7 @@ export const updateProviderSchema = z.object({
   id: z.string().min(1),
   name: z.string().trim().min(1, '名称不能为空').max(50).optional(),
   baseUrl: baseUrlSchema.optional(),
+  protocol: z.enum(['openai', 'anthropic']).optional(),
   apiKey: z.string().max(500).optional(),
   models: z.array(z.string().min(1)).max(1000).optional()
 })

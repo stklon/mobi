@@ -20,6 +20,7 @@ import type { AiEvent } from '@inkcraft/shared'
 import { BUILTIN_TEMPLATES, buildExportText, chunkText, parseCharacterCards, parseOutlineBatch } from '@inkcraft/core'
 import { registerIpc } from './ipc'
 import { runBench } from './bench'
+import { runE2E } from './e2e'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -330,6 +331,34 @@ app.whenReady()
           .then(() => app.quit())
           .catch((err) => {
             console.error('[bench] FAILED:', err)
+            app.exit(1)
+          })
+      }, 1500)
+    }
+
+    // 真实 E2E：走完整生成链路（INKCRAFT_E2E=1）
+    // 用法 A（真实模型）：INKCRAFT_E2E_PROVIDER="Z.ai Coding Plan"
+    // 用法 B（mock）：INKCRAFT_E2E_BASE_URL=http://127.0.0.1:8787 INKCRAFT_E2E_PROTOCOL=anthropic
+    //                 INKCRAFT_E2E_API_KEY=test-key INKCRAFT_E2E_MODELS=GLM-5.3-Flash
+    if (process.env.INKCRAFT_E2E) {
+      setTimeout(() => {
+        runE2E(
+          {
+            library, settings, codex, outline, genesis, writing, memory,
+            makeOrchestrator: (emit) => new AiOrchestrator(db, settings, emit)
+          },
+          {
+            providerName: process.env.INKCRAFT_E2E_PROVIDER,
+            baseUrl: process.env.INKCRAFT_E2E_BASE_URL,
+            apiKey: process.env.INKCRAFT_E2E_API_KEY,
+            protocol: process.env.INKCRAFT_E2E_PROTOCOL as 'openai' | 'anthropic' | undefined,
+            createName: process.env.INKCRAFT_E2E_NAME,
+            models: process.env.INKCRAFT_E2E_MODELS?.split(',').map((m) => m.trim()).filter(Boolean)
+          }
+        )
+          .then(() => app.quit())
+          .catch((err) => {
+            console.error('[e2e] FAILED:', err)
             app.exit(1)
           })
       }, 1500)

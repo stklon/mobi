@@ -12,6 +12,7 @@
     "start": "electron-vite preview",
     "smoke": "electron-vite build && cross-env INKCRAFT_SMOKE=1 electron-vite preview",
     "bench": "electron-vite build && cross-env INKCRAFT_BENCH=1 electron-vite preview",
+    "e2e:mock": "electron-vite build && cross-env INKCRAFT_E2E=1 INKCRAFT_E2E_BASE_URL=http://127.0.0.1:8787 INKCRAFT_E2E_PROTOCOL=anthropic INKCRAFT_E2E_API_KEY=test-key INKCRAFT_E2E_NAME=E2E-Mock INKCRAFT_E2E_MODELS=GLM-5.3-Flash electron-vite preview",
     "dist:dir": "pnpm build && electron-builder --win --dir",
     "dist": "pnpm build && electron-builder --win"
   },

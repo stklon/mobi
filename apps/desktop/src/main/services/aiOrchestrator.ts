@@ -18,6 +18,7 @@ interface ModelContext {
   model: string
   baseUrl: string
   apiKey: string
+  protocol: 'openai' | 'anthropic'
 }
 
 /** 可重试错误（连接失败/限流/5xx，发生在拿到响应体之前）；其余为致命错误直接失败 */
@@ -74,7 +75,8 @@ export class AiOrchestrator {
       providerId: provider.id,
       model: cfg.model,
       baseUrl: provider.baseUrl,
-      apiKey: this.settingService.getApiKey(provider.id)
+      apiKey: this.settingService.getApiKey(provider.id),
+      protocol: provider.protocol ?? 'openai'
     }
   }
 
@@ -100,15 +102,21 @@ export class AiOrchestrator {
     try {
       for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         try {
-          const full = await this.streamOnce(job, ctx, (text) => {
+          const { full, usage: realUsage } = await this.streamOnce(job, ctx, (text) => {
             received += text
             this.emit({ type: 'chunk', requestId: job.requestId, text })
           })
-          const usage = {
-            promptTokens: estimateTokens(job.prompt),
-            completionTokens: estimateTokens(full),
-            estimated: true
-          }
+          const usage = realUsage
+            ? {
+                promptTokens: realUsage.promptTokens,
+                completionTokens: realUsage.completionTokens,
+                estimated: false
+              }
+            : {
+                promptTokens: estimateTokens(job.prompt),
+                completionTokens: estimateTokens(full),
+                estimated: true
+              }
           this.writeLog(
             logId,
             job,
@@ -146,12 +154,15 @@ export class AiOrchestrator {
     }
   }
 
-  /** 单次流式请求：只有「拿到响应体之前」的失败才可重试 */
+  /**
+   * 单次流式请求：只有「拿到响应体之前」的失败才可重试。
+   * 按协议分支构建请求与解析 SSE；Anthropic 协议可返回真实 usage。
+   */
   private async streamOnce(
     job: GenerateJob,
     ctx: ModelContext,
     onChunk: (text: string) => void
-  ): Promise<string> {
+  ): Promise<{ full: string; usage?: { promptTokens: number; completionTokens: number } }> {
     const controller = new AbortController()
     this.controllers.set(job.requestId, controller)
 
@@ -167,22 +178,40 @@ export class AiOrchestrator {
       throw new RetryableError(message)
     }
 
+    // ---- 按协议构建请求 ----
+    const url =
+      ctx.protocol === 'anthropic'
+        ? `${ctx.baseUrl}/v1/messages`
+        : `${ctx.baseUrl}/chat/completions`
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (ctx.protocol === 'anthropic') {
+      headers['anthropic-version'] = '2023-06-01'
+      if (ctx.apiKey) headers['x-api-key'] = ctx.apiKey
+    } else if (ctx.apiKey) {
+      headers.Authorization = `Bearer ${ctx.apiKey}`
+    }
+    const body = JSON.stringify(
+      ctx.protocol === 'anthropic'
+        ? {
+            model: ctx.model,
+            max_tokens: job.maxTokens,
+            stream: true,
+            temperature: job.temperature,
+            messages: [{ role: 'user', content: job.prompt }]
+          }
+        : {
+            model: ctx.model,
+            messages: [{ role: 'user', content: job.prompt }],
+            stream: true,
+            temperature: job.temperature,
+            max_tokens: job.maxTokens
+          }
+    )
+
     try {
-      const res = await fetch(`${ctx.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(ctx.apiKey ? { Authorization: `Bearer ${ctx.apiKey}` } : {})
-        },
-        body: JSON.stringify({
-          model: ctx.model,
-          messages: [{ role: 'user', content: job.prompt }],
-          stream: true,
-          temperature: job.temperature,
-          max_tokens: job.maxTokens
-        }),
-        signal: controller.signal
-      }).catch((err) => fail(err))
+      const res = await fetch(url, { method: 'POST', headers, body, signal: controller.signal }).catch(
+        (err) => fail(err)
+      )
 
       if (!res.ok) {
         const body = await res.text().catch(() => '')
@@ -196,6 +225,7 @@ export class AiOrchestrator {
       const decoder = new TextDecoder()
       let buffer = ''
       let full = ''
+      let usage: { promptTokens: number; completionTokens: number } | undefined
 
       for (;;) {
         const { done, value } = await reader.read().catch((err) => fail(err))
@@ -214,11 +244,38 @@ export class AiOrchestrator {
           const data = trimmed.slice(5).trim()
           if (data === '[DONE]') continue
           try {
-            const json = JSON.parse(data) as { choices?: Array<{ delta?: { content?: string } }> }
-            const text = json.choices?.[0]?.delta?.content
-            if (text) {
-              full += text
-              onChunk(text)
+            const json = JSON.parse(data) as Record<string, unknown>
+
+            if (ctx.protocol === 'anthropic') {
+              // Anthropic 事件流：content_block_delta 携带正文增量
+              if (json.type === 'content_block_delta') {
+                const delta = json.delta as { type?: string; text?: string } | undefined
+                if (delta?.type === 'text_delta' && delta.text) {
+                  full += delta.text
+                  onChunk(delta.text)
+                }
+              } else if (json.type === 'message_start') {
+                const msg = json.message as { usage?: { input_tokens?: number } } | undefined
+                const inputTokens = msg?.usage?.input_tokens
+                if (typeof inputTokens === 'number') {
+                  usage = { promptTokens: inputTokens, completionTokens: 0 }
+                }
+              } else if (json.type === 'message_delta') {
+                const u = json.usage as { output_tokens?: number } | undefined
+                if (typeof u?.output_tokens === 'number') {
+                  usage = { promptTokens: usage?.promptTokens ?? 0, completionTokens: u.output_tokens }
+                }
+              } else if (json.type === 'message_stop') {
+                return { full, usage }
+              }
+            } else {
+              // OpenAI 兼容：choices[0].delta.content
+              const choices = json.choices as Array<{ delta?: { content?: string } }> | undefined
+              const text = choices?.[0]?.delta?.content
+              if (text) {
+                full += text
+                onChunk(text)
+              }
             }
           } catch {
             // 忽略无法解析的心跳/注释行
@@ -229,7 +286,7 @@ export class AiOrchestrator {
       if (!full && !this.cancelled.has(job.requestId)) {
         throw new RetryableError('模型未返回任何内容')
       }
-      return full
+      return { full, usage }
     } finally {
       clearTimeout(timer)
       this.controllers.delete(job.requestId)

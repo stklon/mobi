@@ -19,6 +19,8 @@ interface StoredProvider {
   id: string
   name: string
   baseUrl: string
+  /** openai = /chat/completions；anthropic = /v1/messages */
+  protocol: 'openai' | 'anthropic'
   /** safeStorage(DPAPI) 加密后的 base64；空串 = 未配置 Key */
   apiKeyEnc: string
   models: string[]
@@ -69,6 +71,7 @@ export class SettingService {
       id: p.id,
       name: p.name,
       baseUrl: p.baseUrl,
+      protocol: p.protocol ?? 'openai',
       hasKey: Boolean(p.apiKeyEnc),
       models: p.models
     }
@@ -93,6 +96,7 @@ export class SettingService {
       id: randomUUID(),
       name: input.name,
       baseUrl: input.baseUrl.replace(/\/+$/, ''),
+      protocol: input.protocol ?? 'openai',
       apiKeyEnc: this.encryptKey(input.apiKey ?? ''),
       models: input.models ?? []
     }
@@ -111,6 +115,7 @@ export class SettingService {
       ...prev,
       name: input.name?.trim() ?? prev.name,
       baseUrl: input.baseUrl ? input.baseUrl.replace(/\/+$/, '') : prev.baseUrl,
+      protocol: input.protocol ?? prev.protocol ?? 'openai',
       apiKeyEnc: input.apiKey !== undefined ? this.encryptKey(input.apiKey) : prev.apiKeyEnc,
       models: input.models ?? prev.models
     }
@@ -139,14 +144,14 @@ export class SettingService {
     return pruned
   }
 
-  /** 丢弃引用了不存在 Provider / 未收录模型的场景配置（数据卫生） */
+  /** 丢弃引用了不存在 Provider 的场景配置（数据卫生；模型名允许手输，不强制在列表内） */
   private pruneModelConfig(config: ModelConfigDTO, providers: ProviderDTO[]): ModelConfigDTO {
     const out: ModelConfigDTO = {}
     for (const scene of SCENES) {
       const cfg = config[scene]
       if (!cfg) continue
       const provider = providers.find((p) => p.id === cfg.providerId)
-      if (provider && provider.models.includes(cfg.model)) {
+      if (provider && cfg.model.trim() !== '') {
         out[scene] = cfg as SceneModelConfig
       }
     }
@@ -181,41 +186,92 @@ export class SettingService {
   /**
    * 测试 Provider：传 id 用已存储配置（成功后自动回写模型列表），
    * 传 baseUrl/apiKey 测试未保存的表单。
+   * openai 协议走 GET /models；anthropic 协议先试 GET /v1/models，
+   * 不支持则用一次最小 /v1/messages 调用验证鉴权（模型列表留空，UI 手输）。
    */
   async testProvider(payload: ProviderTestPayload): Promise<ProviderTestResult> {
     let baseUrl = payload.baseUrl?.trim()
     let apiKey = payload.apiKey ?? ''
+    let protocol: 'openai' | 'anthropic' = payload.protocol ?? 'openai'
 
     if (payload.id) {
       const p = this.getStoredProviders().find((x) => x.id === payload.id)
       if (!p) return { ok: false, models: [], error: 'Provider 不存在' }
       baseUrl = p.baseUrl
+      protocol = p.protocol ?? 'openai'
       if (!apiKey) apiKey = this.getApiKey(payload.id)
     }
 
     if (!baseUrl) return { ok: false, models: [], error: '缺少 Base URL' }
 
     try {
-      const url = baseUrl.replace(/\/+$/, '') + '/models'
-      const res = await fetch(url, {
-        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
-        signal: AbortSignal.timeout(15000)
-      })
-      if (!res.ok) {
-        const body = await res.text().catch(() => '')
-        return { ok: false, models: [], error: `HTTP ${res.status} ${body.slice(0, 200)}`.trim() }
+      if (protocol === 'anthropic') {
+        return await this.testAnthropic(baseUrl, apiKey, payload.id)
       }
-      const json = (await res.json()) as { data?: Array<{ id?: string }> }
-      const models = (json.data ?? [])
-        .map((m) => m.id)
-        .filter((x): x is string => Boolean(x))
-        .sort()
-
-      if (payload.id) this.updateProvider({ id: payload.id, models })
-      return { ok: true, models }
+      return await this.testOpenai(baseUrl, apiKey, payload.id)
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       return { ok: false, models: [], error: msg }
     }
+  }
+
+  private async testOpenai(baseUrl: string, apiKey: string, providerId?: string): Promise<ProviderTestResult> {
+    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/models`, {
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+      signal: AbortSignal.timeout(15_000)
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      return { ok: false, models: [], error: `HTTP ${res.status} ${body.slice(0, 200)}`.trim() }
+    }
+    const json = (await res.json()) as { data?: Array<{ id?: string }> }
+    const models = (json.data ?? [])
+      .map((m) => m.id)
+      .filter((x): x is string => Boolean(x))
+      .sort()
+    if (providerId) this.updateProvider({ id: providerId, models })
+    return { ok: true, models }
+  }
+
+  private async testAnthropic(baseUrl: string, apiKey: string, providerId?: string): Promise<ProviderTestResult> {
+    const base = baseUrl.replace(/\/+$/, '')
+    const headers: Record<string, string> = {
+      'anthropic-version': '2023-06-01',
+      'Content-Type': 'application/json'
+    }
+    if (apiKey) headers['x-api-key'] = apiKey
+
+    const modelsRes = await fetch(`${base}/v1/models`, { headers, signal: AbortSignal.timeout(15_000) }).catch(() => null)
+    if (modelsRes && modelsRes.ok) {
+      const json = (await modelsRes.json().catch(() => ({}))) as { data?: Array<{ id?: string }> }
+      const models = (json.data ?? [])
+        .map((m) => m.id)
+        .filter((x): x is string => Boolean(x))
+        .sort()
+      if (providerId) this.updateProvider({ id: providerId, models })
+      return { ok: true, models }
+    }
+
+    // /v1/models 不可用：用最小消息调用验证鉴权
+    const res = await fetch(`${base}/v1/messages`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: 'probe',
+        max_tokens: 1,
+        messages: [{ role: 'user', content: 'hi' }]
+      }),
+      signal: AbortSignal.timeout(15_000)
+    })
+    if (res.status === 401 || res.status === 403) {
+      const body = await res.text().catch(() => '')
+      return { ok: false, models: [], error: `鉴权失败 HTTP ${res.status} ${body.slice(0, 200)}`.trim() }
+    }
+    if (res.status === 404 || res.status === 400 || res.ok) {
+      // 端点存在且鉴权通过（400 通常是 probe 模型名不合法，属预期）
+      return { ok: true, models: [] }
+    }
+    const body = await res.text().catch(() => '')
+    return { ok: false, models: [], error: `HTTP ${res.status} ${body.slice(0, 200)}`.trim() }
   }
 }

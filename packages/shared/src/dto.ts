@@ -79,6 +79,8 @@ export interface ProviderDTO {
   id: string
   name: string
   baseUrl: string
+  /** 接口协议：openai = /chat/completions；anthropic = /v1/messages（GLM Coding Plan / Claude 系） */
+  protocol: 'openai' | 'anthropic'
   hasKey: boolean
   models: string[]
 }
@@ -86,6 +88,7 @@ export interface ProviderDTO {
 export interface CreateProviderPayload {
   name: string
   baseUrl: string
+  protocol?: 'openai' | 'anthropic'
   apiKey?: string
   /** 最近一次连通性测试拉到的模型列表（随保存写入） */
   models?: string[]
@@ -95,6 +98,7 @@ export interface UpdateProviderPayload {
   id: string
   name?: string
   baseUrl?: string
+  protocol?: 'openai' | 'anthropic'
   /** 仅在修改 Key 时传入；留空表示不修改 */
   apiKey?: string
   models?: string[]
@@ -115,11 +119,12 @@ export interface AppSettingsDTO {
   modelConfig: ModelConfigDTO
 }
 
-/** 连通性测试：传 id 用已存储配置；传 baseUrl/apiKey 测试未保存的表单 */
+/** 连通性测试：传 id 用已存储配置；传 baseUrl/apiKey 测试未保存的表单（表单测试需带 protocol） */
 export interface ProviderTestPayload {
   id?: string
   baseUrl?: string
   apiKey?: string
+  protocol?: 'openai' | 'anthropic'
 }
 
 export interface ProviderTestResult {
