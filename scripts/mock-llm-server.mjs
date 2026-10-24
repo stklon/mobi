@@ -46,6 +46,32 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  if (req.method === 'POST' && req.url === '/embeddings') {
+    if (!authOk) {
+      res.writeHead(401, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: { message: 'bad key' } }))
+      return
+    }
+    let body = ''
+    req.on('data', (c) => (body += c))
+    req.on('end', () => {
+      let count = 1
+      try {
+        count = JSON.parse(body).input?.length ?? 1
+      } catch {
+        /* ignore */
+      }
+      // 确定性伪向量：文本无关，仅验证维度与数量
+      const data = Array.from({ length: count }, (_, i) => ({
+        index: i,
+        embedding: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+      }))
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ data }))
+    })
+    return
+  }
+
   if (req.method === 'POST' && (req.url === '/v1/messages' || req.url === '/chat/completions')) {
     if (!authOk) {
       res.writeHead(401, { 'Content-Type': 'application/json' })

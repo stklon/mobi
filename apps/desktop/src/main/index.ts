@@ -344,7 +344,7 @@ app.whenReady()
       setTimeout(() => {
         runE2E(
           {
-            library, settings, codex, outline, genesis, writing, memory,
+            library, settings, codex, outline, genesis, writing, memory, embedding, rag,
             makeOrchestrator: (emit) => new AiOrchestrator(db, settings, emit)
           },
           {
@@ -353,7 +353,9 @@ app.whenReady()
             apiKey: process.env.INKCRAFT_E2E_API_KEY,
             protocol: process.env.INKCRAFT_E2E_PROTOCOL as 'openai' | 'anthropic' | undefined,
             createName: process.env.INKCRAFT_E2E_NAME,
-            models: process.env.INKCRAFT_E2E_MODELS?.split(',').map((m) => m.trim()).filter(Boolean)
+            models: process.env.INKCRAFT_E2E_MODELS?.split(',').map((m) => m.trim()).filter(Boolean),
+            embedModel: process.env.INKCRAFT_E2E_EMBED_MODEL,
+            keep: process.env.INKCRAFT_E2E_KEEP === '1'
           }
         )
           .then(() => app.quit())

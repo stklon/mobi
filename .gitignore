@@ -7,6 +7,7 @@ release/
 Thumbs.db
 .env
 .env.*
+secrets.env.local
 *.db
 *.db-shm
 *.db-wal

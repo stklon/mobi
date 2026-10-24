@@ -8,6 +8,8 @@ import type { GenesisService } from './services/genesisService'
 import type { WritingService } from './services/writingService'
 import type { MemoryService } from './services/memoryService'
 import type { AiOrchestrator } from './services/aiOrchestrator'
+import type { EmbeddingClient } from './services/embeddingClient'
+import type { RagService } from './services/ragService'
 
 export interface E2EOptions {
   /** 使用已存在的 Provider（用户已在设置页配置好 Key） */
@@ -18,6 +20,10 @@ export interface E2EOptions {
   protocol?: 'openai' | 'anthropic'
   createName?: string
   models?: string[]
+  /** 嵌入模型（如百炼 text-embedding-v4）；设置后测试 RAG 向量通道 */
+  embedModel?: string
+  /** 测完保留临时 Provider 与场景配置（用户开箱即用）；默认清理还原 */
+  keep?: boolean
 }
 
 interface E2EServices {
@@ -28,6 +34,8 @@ interface E2EServices {
   genesis: GenesisService
   writing: WritingService
   memory: MemoryService
+  embedding: EmbeddingClient
+  rag: RagService
   /** 每个任务一个独立编排器实例，便于捕获事件 */
   makeOrchestrator: (emit: (e: AiEvent) => void) => AiOrchestrator
 }
@@ -200,6 +208,34 @@ export async function runE2E(services: E2EServices, opts: E2EOptions): Promise<v
     console.log(`[e2e] 章纲 JSON 解析：${parseOk ? `OK（${parsed.length} 条）` : 'FAIL'}`)
     if (!parseOk) batchRes.ok = false
 
+    // ---- 嵌入通道（RAG 向量检索） ----
+    if (opts.embedModel) {
+      console.log(`[e2e] 嵌入通道测试（模型 ${opts.embedModel}）…`)
+      settings.saveModelConfig({ ...testConfig, embedding: { providerId, model: opts.embedModel } })
+      const t = performance.now()
+      const vecs = await services.embedding.embed(['林凡走进藏经阁，翻开上古残卷。'])
+      const embedMs = Math.round(performance.now() - t)
+      if (!vecs || vecs.length !== 1 || vecs[0].length === 0) throw new Error('嵌入调用失败')
+      console.log(`[e2e] 嵌入调用 OK：${embedMs}ms，维度 ${vecs[0].length}`)
+
+      const chunkCount = await services.rag.indexChapter(ch2.id)
+      const status = services.rag.getStatus(project.id)
+      console.log(`[e2e] 章节索引：${chunkCount} 切片；全书 ${status.chunks} 片，已嵌入 ${status.embedded} 片`)
+      if (status.embedded === 0) throw new Error('索引后嵌入数仍为 0（向量通道未生效）')
+
+      // 用较远的章号检索（近 3 章内容被设计性跳过，避免与前文记忆区块重复）
+      const hits = await services.rag.retrieveForContinue(project.id, 10, {
+        outlineGoal: '寻找上古残卷的下落',
+        plotPoints: ['潜入藏经阁', '遭遇黑影'],
+        characters: ['林凡'],
+        textTail: '林凡朝藏经阁摸去。'
+      })
+      console.log(
+        `[e2e] 向量+实体混合检索：命中 ${hits.length} 块${hits.length > 0 ? `（top: ${hits[0].label} 得分 ${hits[0].score}）` : ''}`
+      )
+      if (hits.length === 0) throw new Error('混合检索无命中')
+    }
+
     // ---- 汇总 ----
     console.log('\n[e2e] ===== 结果汇总 =====')
     for (const r of results) {
@@ -214,10 +250,12 @@ export async function runE2E(services: E2EServices, opts: E2EOptions): Promise<v
     if (failures.length > 0) throw new Error(`${failures.length} 项生成任务失败`)
     console.log('[e2e] ===== 全部通过 =====')
   } finally {
-    // ---- 清理：恢复场景配置，删除临时 Provider 与测试书 ----
+    // ---- 清理：恢复场景配置，删除临时 Provider 与测试书（keep 模式保留 Provider 与配置） ----
     try {
-      if (prevModelConfig) settings.saveModelConfig(prevModelConfig)
-      if (createdProviderId) settings.deleteProvider(createdProviderId)
+      if (!opts.keep) {
+        if (prevModelConfig) settings.saveModelConfig(prevModelConfig)
+        if (createdProviderId) settings.deleteProvider(createdProviderId)
+      }
       if (testProjectId) library.deleteProject(testProjectId)
     } catch (err) {
       console.warn('[e2e] 清理失败:', err)
