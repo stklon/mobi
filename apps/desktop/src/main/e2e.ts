@@ -1,5 +1,5 @@
 import type { AiEvent, ModelConfigDTO } from '@inkcraft/shared'
-import { parseOutlineBatch } from '@inkcraft/core'
+import { detectAiFlavor, parseOutlineBatch } from '@inkcraft/core'
 import type { LibraryService } from './services/libraryService'
 import type { SettingService } from './services/settingService'
 import type { CodexService } from './services/codexService'
@@ -243,7 +243,10 @@ export async function runE2E(services: E2EServices, opts: E2EOptions): Promise<v
       console.log(
         `[${status}] ${r.name}  首字 ${r.firstTokenMs ?? '-'}ms  总 ${r.totalMs}ms  ${r.chars ?? 0}字  ${r.usage ?? ''}${r.error ? '  错误: ' + r.error : ''}`
       )
-      console.log(`       预览: ${r.full.slice(0, 60)}`)
+      const flavor = detectAiFlavor(r.full)
+      console.log(
+        `       AI味 ${flavor.score}（${flavor.level}，命中 ${flavor.hits.length} 项）  预览: ${r.full.slice(0, 50)}`
+      )
     }
 
     const failures = results.filter((r) => !r.ok)

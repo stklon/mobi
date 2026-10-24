@@ -23,28 +23,29 @@ if (!key || key.includes('填入')) {
   process.exit(1)
 }
 
-/** 端点候选：Key 前缀 ↔ 协议/端点配对（官方文档 get-api-key 页对照表） */
+/** 端点候选：用真实对话调用验证（/models 存在"假 200"，不可作为认证依据） */
+const testModel = env.BAILIAN_TEST_MODEL || 'qwen-plus'
 const CANDIDATES = [
   {
     name: '百炼 Coding Plan（sk-ws- Key 专属）',
     protocol: 'anthropic',
     url: 'https://coding.dashscope.aliyuncs.com/apps/anthropic/v1/messages',
     headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-    body: { model: 'qwen3.7-plus', max_tokens: 16, messages: [{ role: 'user', content: '只回复：OK' }] }
+    body: { model: testModel, max_tokens: 16, messages: [{ role: 'user', content: '只回复：OK' }] }
   },
   {
     name: '阿里百炼（按量付费标准端点）',
     protocol: 'openai',
     url: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
     headers: { Authorization: `Bearer ${key}` },
-    body: { model: 'qwen-plus', max_tokens: 16, messages: [{ role: 'user', content: '只回复：OK' }] }
+    body: { model: testModel, max_tokens: 16, messages: [{ role: 'user', content: '只回复：OK' }] }
   },
   {
     name: '百炼 Coding Plan（OpenAI 兼容路径）',
     protocol: 'openai',
     url: 'https://coding.dashscope.aliyuncs.com/v1/chat/completions',
     headers: { Authorization: `Bearer ${key}` },
-    body: { model: 'qwen3.7-plus', max_tokens: 16, messages: [{ role: 'user', content: '只回复：OK' }] }
+    body: { model: testModel, max_tokens: 16, messages: [{ role: 'user', content: '只回复：OK' }] }
   }
 ]
 
