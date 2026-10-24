@@ -67,6 +67,31 @@ for (const c of CANDIDATES) {
   }
 }
 
+// --- 嵌入（RAG 向量检索）通道测试 ---
+if (working) {
+  const embedModel = env.BAILIAN_EMBED_MODEL || 'text-embedding-v4'
+  try {
+    const res = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({ model: embedModel, input: ['林凡走进藏经阁'] }),
+      signal: AbortSignal.timeout(30_000)
+    })
+    const json = await res.json().catch(() => ({}))
+    if (res.ok && json.data) {
+      console.log(`[OK  ] 嵌入通道（${embedModel}）→ 维度 ${json.data[0].embedding.length}，RAG 向量检索可用`)
+    } else {
+      console.log(
+        `[FAIL] 嵌入通道（${embedModel}）→ HTTP ${res.status}：Key 无嵌入权限或模型未开通。`
+      )
+      console.log('       RAG 将以实体关键词检索运行（功能不中断）；如需向量通道：')
+      console.log('       百炼控制台确认向量模型已开通/授权（sk-ws 工作空间 Key 可能按用途限定权限，或需单独的 Key）。')
+    }
+  } catch (err) {
+    console.log(`[FAIL] 嵌入通道 → ${err.message}`)
+  }
+}
+
 if (working) {
   const base = working.url.replace(/\/v1\/(messages|chat\/completions)$/, '')
   console.log('\n===== 可用配置（填入应用或 E2E）=====')
