@@ -123,7 +123,8 @@ export async function runE2E(services: E2EServices, opts: E2EOptions): Promise<v
       const found = s0.providers.find((p) => p.name === opts.providerName)
       if (!found) throw new Error(`找不到 Provider「${opts.providerName}」，请先在应用设置中配置`)
       providerId = found.id
-      models = found.models.length > 0 ? found.models : (opts.models ?? [])
+      // 显式指定的模型优先（provider.models[0] 是列表排序的产物，不一定是想要的）
+      models = opts.models ?? found.models
       console.log(`[e2e] 使用已配置 Provider：${found.name}（${found.protocol}，${found.hasKey ? '有 Key' : '无 Key'}）`)
     } else {
       if (!opts.baseUrl) throw new Error('缺少 INKCRAFT_E2E_BASE_URL')
