@@ -8,8 +8,10 @@
 |---|---|---|
 | Node.js | `C:\devtools\node`（v24.22.1 LTS 便携版） | 已加入当前用户 PATH；新终端若不可用请检查 PATH |
 | pnpm | 12.15.0（`C:\devtools\node\pnpm.cmd`） | 随 Node 全局安装 |
+| Git | `C:\devtools\git`（2.56 便携版） | 已加入用户 PATH；仓库身份为 repo 级配置（inkcraft-dev），可自行修改 |
 | Electron | 43.8.3（ABI 148） | 二进制已下载并缓存 |
 | better-sqlite3 | 13.0.3（**N-API**） | 预编译随 npm 包发布，Node/Electron 通用，**无需 electron-rebuild** |
+| TipTap | 3.32.0 | 章节编辑器（纯文本段落模型，禁用格式化扩展） |
 
 ## 常用命令（均在仓库根目录执行）
 
@@ -57,9 +59,9 @@ node install.js
 
 ## 当前进度（对照开发文档里程碑）
 
-- [x] M1-W1~W2：monorepo 骨架、书架/项目 CRUD、卷/章节 CRUD、编辑器（textarea + 1s 防抖自动保存 + 字数统计）、SQLite 迁移框架、typed IPC、冒烟测试
-- [ ] M1-W3~W4：TipTap 富文本编辑器（划词菜单/草稿态标记）、设置页（模型 Provider 配置 + Key 加密存储 + 连通性测试）、版本快照
-- [ ] M2：AIOrchestrator、PromptEngine、流式续写
+- [x] M1-W1~W2：monorepo 骨架、书架/项目 CRUD、卷/章节 CRUD、编辑器 + 1s 防抖自动保存 + 字数统计、SQLite 迁移框架、typed IPC、冒烟测试
+- [x] M1-W3~W4：设置页（Provider CRUD + API Key DPAPI 加密存储 + OpenAI 兼容连通性测试 + 模型分工五场景）、TipTap 富文本编辑器（撤销重做/纯文本段落模型）、Git 仓库初始化
+- [ ] M2：AIOrchestrator（流式/队列/重试）、PromptEngine（模板渲染/Token 预算）、基础续写（无 RAG）、划词润色、快照回滚
 - [ ] M3：创世向导、Codex、三层大纲
 - [ ] M4：RAG 管线、记忆系统、导出
 - [ ] M5：压测与打包
@@ -67,6 +69,9 @@ node install.js
 ## 已知技术决策备忘
 
 1. **better-sqlite3 v13（N-API）**：不再需要为 Electron 重编译原生模块；代价是锁死大版本（v12 及以下为旧 ABI 机制）。
-2. **单库文件**：V1 实现为单 `library.db`（projects/volumes/chapters 表带 project_id），较开发文档的"单书单库"简化；SQLite 处理百万字无压力，如后续需要再拆分。
-3. **pnpm 12**：构建脚本白名单（`onlyBuiltDependencies`）已迁至 `pnpm-workspace.yaml`。
+2. **单库文件**：V1 实现为单 `library.db`（projects/volumes/chapters/settings 表），较开发文档的"单书单库"简化；SQLite 处理百万字无压力，如后续需要再拆分。
+3. **pnpm 12**：构建脚本白名单（`onlyBuiltDependencies`）已迁至 `pnpm-workspace.yaml`；`pnpm typecheck` 会先构建 shared/core（desktop 依赖其 dist 类型）。
 4. **electron-vite 6 + Vite 8（rolldown）**：main/preload 输出 CJS 到 `out/`，`main` 字段指向 `out/main/index.js`。
+5. **API Key 安全**：经 Electron `safeStorage`（Windows DPAPI）加密后存入 settings 表；渲染层只拿到 `hasKey` 布尔值，解密仅在主进程（`SettingService.getApiKey`，M2 的 AI 编排器调用）。
+6. **TipTap 纯文本模型**：章节存储始终是纯文本（`\n` = 段落分隔），StarterKit 关闭了全部格式化/列表/链接扩展，仅保留 document/paragraph/text/undoRedo/dropcursor——保证导出与后续 RAG 切片不依赖富文本结构。
+7. **Git 身份**：repo 级占位身份 `inkcraft-dev <dev@inkcraft.local>`，提交前请改为自己的 `git config user.name/user.email`。
