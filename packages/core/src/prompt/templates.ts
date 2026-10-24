@@ -10,10 +10,6 @@ export interface BuiltinTemplate {
   content: string
 }
 
-/** 全书通用禁用清单（防 AI 腔基线，docs/04 附录 A） */
-export const DEFAULT_BANNED_LIST =
-  '眼眸、眸子、勾起一抹、嘴角勾起、心中一凛、不由得、一丝、空气仿佛凝固、犹如一道惊雷、缓缓开口、深邃、难以言喻、恍若隔世；段末总结句（如「这一夜，注定无眠」）；连续排比式开头'
-
 // T-01 创世 · 世界观生成
 const T01_GENESIS_WORLD = `# 角色
 你是资深网文世界观架构师，擅长构建逻辑自洽、有记忆点的小说世界。
@@ -160,6 +156,11 @@ const T06_CONTINUE = `# 角色
 {{characterCards}}
 {{/if}}
 
+{{#if styleSample}}
+# 文风样本（模仿其语言风格、句长节奏、比喻密度与用词习惯；只学风格，禁止复制内容）
+{{styleSample}}
+{{/if}}
+
 {{#if hasChapterOutline}}
 # 本章大纲（本章的写作计划，情节要点必须全部覆盖）
 - 本章目标：{{outlineGoal}}
@@ -184,6 +185,7 @@ const T06_CONTINUE = `# 角色
 
 # 本次续写指令
 - 续写长度：约 {{wordCount}} 字
+- 叙事侧重：{{styleVariation}}
 {{#if directive}}- 作者特别要求：{{directive}}{{/if}}
 
 现在开始，直接输出正文。`
@@ -214,6 +216,31 @@ const T07_POLISH = `# 角色
 1. 不改变人称、时态、视角；专有名词原样保留。
 2. 只输出结果文本，不要说明修改点。`
 
+// T-14 去 AI 味改写（输入检测命中清单 + 可选文风样本，FR-DF-04）
+const T14_DE_AI_FLAVOR = `# 角色
+你是专门去除"AI 味"的文风编辑。真人作者的文字具体、有节奏起伏、有留白；AI 的文字套话、均匀、爱总结。
+
+# 任务
+改写下面的选区，消除 AI 味；情节、人名、称呼、视角与信息量完全不变。
+
+# 本段检测命中的 AI 味问题（必须全部解决）
+{{flavorHits}}
+{{#if styleSample}}
+# 文风样本（模仿其语言习惯、句长节奏与比喻密度，不复制内容）
+{{styleSample}}
+{{/if}}
+# 选中文本
+{{selection}}
+
+# 改写规则
+1. 命中的套话词全部替换为具体动作、神态或细节；无法替换的直接删除。
+2. 删除一切总结性收尾句，段末落在动作、对话或画面上。
+3. 打散均匀节奏：长短句交错，至少出现一个不超过 6 字的短句。
+4. 情绪不直写：删掉「愤怒/震惊/绝望」类标签词，改用行为与生理反应呈现。
+5. 「仿佛/似乎/宛如」类比喻至多保留 1 处，其余改为直陈。
+
+只输出改写后的文本。`
+
 // T-09 章后摘要（记忆系统：归档时生成，替代原文尾巴注入后续续写）
 const T09_CHAPTER_SUMMARY = `# 角色
 你是小说连续性编辑，负责为长篇连载撰写"给未来续写用的记忆摘要"。
@@ -242,5 +269,6 @@ export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
   { code: 'T-05', name: '批量章纲生成', content: T05_OUTLINE_BATCH },
   { code: 'T-06', name: '正文续写', content: T06_CONTINUE },
   { code: 'T-07', name: '划词润色/改写/扩写/缩写', content: T07_POLISH },
-  { code: 'T-09', name: '章后摘要（记忆归档）', content: T09_CHAPTER_SUMMARY }
+  { code: 'T-09', name: '章后摘要（记忆归档）', content: T09_CHAPTER_SUMMARY },
+  { code: 'T-14', name: '去 AI 味改写', content: T14_DE_AI_FLAVOR }
 ]

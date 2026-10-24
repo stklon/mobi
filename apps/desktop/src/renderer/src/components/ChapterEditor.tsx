@@ -171,6 +171,15 @@ export function ChapterEditor({ chapterId, content, onContentChange, editorRef, 
             >
               缩写
             </button>
+            <button
+              className="deai-btn"
+              onMouseDown={(e) => {
+                e.preventDefault()
+                startPolish('deai')
+              }}
+            >
+              去AI味
+            </button>
           </div>
         </BubbleMenu>
       )}

@@ -608,6 +608,31 @@ textarea:focus {
   gap: 8px;
 }
 
+/* ---------- AI 味检测徽章 ---------- */
+
+.flavor-badge {
+  font-size: 12px;
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin: 6px 0;
+}
+.flavor-badge.clean {
+  color: var(--ok);
+  background: rgba(92, 184, 122, 0.12);
+}
+.flavor-badge.mild {
+  color: var(--warn);
+  background: rgba(217, 164, 65, 0.12);
+}
+.flavor-badge.heavy {
+  color: var(--danger);
+  background: rgba(224, 92, 92, 0.14);
+}
+
+.bubble-menu .deai-btn {
+  color: var(--accent);
+}
+
 /* ---------- 首启引导 ---------- */
 
 .welcome-card {

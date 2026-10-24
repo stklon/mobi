@@ -17,7 +17,7 @@ import { MemoryService } from './services/memoryService'
 import { ExportService } from './services/exportService'
 import { IPC } from '@inkcraft/shared'
 import type { AiEvent } from '@inkcraft/shared'
-import { BUILTIN_TEMPLATES, buildExportText, chunkText, parseCharacterCards, parseOutlineBatch } from '@inkcraft/core'
+import { BUILTIN_TEMPLATES, buildExportText, chunkText, detectAiFlavor, parseCharacterCards, parseOutlineBatch } from '@inkcraft/core'
 import { registerIpc } from './ipc'
 import { runBench } from './bench'
 import { runE2E } from './e2e'
@@ -215,6 +215,38 @@ async function runSmoke(
   const ragStatus = rag.getStatus(project.id)
   if (ragStatus.chunks < 3 || ragStatus.embedded !== 0 || ragStatus.embeddingConfigured) {
     throw new Error(`RAG 索引状态异常: ${JSON.stringify(ragStatus)}`)
+  }
+
+  // --- 去 AI 味：检测器双向断言 ---
+  const aiHeavyText =
+    '他深邃的眼眸中闪过一丝凛然。她嘴角勾起一抹难以言喻的笑意，空气仿佛凝固了。\n\n' +
+    '他缓缓开口，声音仿佛穿越了千年。她心中一凛，不由得后退半步，眸光流转，恍若隔世。\n\n' +
+    '夜色深沉。这一夜，注定无眠。'
+  const aiCleanText =
+    '刀掉在地上。\n\n林凡没去捡。他盯着王虎，数了三个数，才慢慢弯腰。院里的狗叫了两声，又停了。\n\n"你还来？"他问。'
+  const heavyReport = detectAiFlavor(aiHeavyText)
+  const cleanReport = detectAiFlavor(aiCleanText)
+  if (heavyReport.score <= 60 || heavyReport.level !== 'heavy') {
+    throw new Error(`AI 味样本得分异常: ${heavyReport.score}（${heavyReport.level}）`)
+  }
+  if (cleanReport.score >= 30 || cleanReport.level !== 'clean') {
+    throw new Error(`干净样本得分异常: ${cleanReport.score}（${cleanReport.level}）`)
+  }
+
+  // --- 文风样本 + 叙事侧重注入 T-06 ---
+  library.updateProject({ id: project.id, styleSample: '他写字很省。三句一段，顿一下，像在点烟。' })
+  const builtStyled = await writing.buildContinuePrompt(chapter2.id, { wordCount: 500 })
+  if (!builtStyled.prompt.includes('文风样本') || !builtStyled.prompt.includes('三句一段')) {
+    throw new Error('文风样本未注入续写提示词')
+  }
+  if (!builtStyled.prompt.includes('叙事侧重：')) {
+    throw new Error('叙事侧重指令未注入')
+  }
+
+  // --- T-14 去 AI 味：命中清单注入 ---
+  const deai = writing.buildPolishPrompt({ chapterId: chapter2.id, selection: aiHeavyText, operation: 'deai' })
+  if (deai.templateCode !== 'T-14' || !deai.prompt.includes('R1 套话词') || !deai.prompt.includes('改写规则')) {
+    throw new Error('T-14 去 AI 味提示词构建异常')
   }
 
   // --- 创世提示词构建 ---

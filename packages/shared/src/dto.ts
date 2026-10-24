@@ -7,6 +7,8 @@ export interface ProjectDTO {
   targetWords: number
   styleGuide: string
   pov: string
+  /** 文风样本（作者自己写的 500~8000 字，续写时注入以锚定个人文风，去 AI 味核心手段） */
+  styleSample: string
   createdAt: number
   updatedAt: number
 }
@@ -26,6 +28,7 @@ export interface UpdateProjectPayload {
   targetWords?: number
   styleGuide?: string
   pov?: string
+  styleSample?: string
 }
 
 export interface VolumeDTO {
@@ -152,7 +155,7 @@ export interface ContinueParams {
   wordCount?: number
 }
 
-export type PolishOperation = 'polish' | 'rewrite' | 'expand' | 'shorten'
+export type PolishOperation = 'polish' | 'rewrite' | 'expand' | 'shorten' | 'deai'
 
 export interface PolishParams {
   chapterId: string

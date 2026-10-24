@@ -27,6 +27,7 @@ interface ProjectRow {
   target_words: number
   style_guide: string
   pov: string
+  style_sample: string
   created_at: number
   updated_at: number
 }
@@ -62,6 +63,7 @@ const toProject = (r: ProjectRow): ProjectDTO => ({
   targetWords: r.target_words,
   styleGuide: r.style_guide,
   pov: r.pov,
+  styleSample: r.style_sample ?? '',
   createdAt: r.created_at,
   updatedAt: r.updated_at
 })
@@ -148,11 +150,14 @@ export class LibraryService {
       genre: input.genre ?? existing.genre,
       targetWords: input.targetWords ?? existing.targetWords,
       styleGuide: input.styleGuide ?? existing.styleGuide,
-      pov: input.pov ?? existing.pov
+      pov: input.pov ?? existing.pov,
+      styleSample: input.styleSample ?? existing.styleSample
     }
     this.db
-      .prepare('UPDATE projects SET title = ?, genre = ?, target_words = ?, style_guide = ?, pov = ?, updated_at = ? WHERE id = ?')
-      .run(merged.title, merged.genre, merged.targetWords, merged.styleGuide, merged.pov, Date.now(), input.id)
+      .prepare(
+        'UPDATE projects SET title = ?, genre = ?, target_words = ?, style_guide = ?, pov = ?, style_sample = ?, updated_at = ? WHERE id = ?'
+      )
+      .run(merged.title, merged.genre, merged.targetWords, merged.styleGuide, merged.pov, merged.styleSample, Date.now(), input.id)
 
     return this.getProjectOrThrow(input.id)
   }

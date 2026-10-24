@@ -1,7 +1,7 @@
 import type { Database } from 'better-sqlite3'
 import type { ContinueParams, PolishOperation, PolishParams } from '@inkcraft/shared'
-import { countWords } from '@inkcraft/core'
-import { DEFAULT_BANNED_LIST } from '@inkcraft/core'
+import { countWords, detectAiFlavor } from '@inkcraft/core'
+import { DEFAULT_BANNED_LIST, STYLE_VARIATIONS } from '@inkcraft/core'
 import type { LibraryService } from './libraryService'
 import type { TemplateService } from './templateService'
 import type { CodexService } from './codexService'
@@ -29,7 +29,8 @@ const OPERATION_LABELS: Record<PolishOperation, string> = {
   polish: '润色',
   rewrite: '改写',
   expand: '扩写',
-  shorten: '缩写'
+  shorten: '缩写',
+  deai: '去 AI 味'
 }
 
 function tail(text: string, max: number): string {
@@ -53,7 +54,7 @@ export interface ContinuePromptResult {
 
 export interface PolishPromptResult {
   prompt: string
-  templateCode: 'T-07'
+  templateCode: 'T-07' | 'T-14'
   temperature: number
   maxTokens: number
 }
@@ -151,6 +152,7 @@ export class WritingService {
       bannedList: DEFAULT_BANNED_LIST,
       worldContext,
       characterCards,
+      styleSample: project.styleSample ? project.styleSample.slice(0, 3000) : '',
       hasChapterOutline: outlineNode ? '1' : '',
       outlineGoal: outlineNode?.goal ?? '',
       outlinePlotPoints,
@@ -160,6 +162,7 @@ export class WritingService {
       ragContext,
       textTail: textTail || '（本章还没有内容，请直接开篇）',
       wordCount,
+      styleVariation: STYLE_VARIATIONS[chapter.no % STYLE_VARIATIONS.length],
       directive: params.directive ?? ''
     }
 
@@ -182,6 +185,27 @@ export class WritingService {
     const selection = params.selection.trim()
     if (!selection) throw new Error('选区为空')
     if (selection.length > 20_000) throw new Error('选区过长（>2 万字），请分批处理')
+
+    // 去 AI 味：本地检测命中清单注入 T-14，五条改写规则定向消除
+    if (params.operation === 'deai') {
+      const report = detectAiFlavor(selection)
+      const flavorHits =
+        report.hits.length > 0
+          ? report.hits.map((h) => `- ${h.rule}：${h.detail} → ${h.suggestion}`).join('\n')
+          : '- （本地检测未命中明显问题，按通用改写规则执行）'
+      const { prompt } = this.templates.render('T-14', {
+        flavorHits,
+        styleSample: project.styleSample ? project.styleSample.slice(0, 3000) : '',
+        selection
+      })
+      const baseWords = countWords(selection)
+      return {
+        prompt,
+        templateCode: 'T-14',
+        temperature: 0.85,
+        maxTokens: Math.min(Math.max(baseWords * 3, 1024), 8192)
+      }
+    }
 
     const vars = {
       operationLabel: OPERATION_LABELS[params.operation],

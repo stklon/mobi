@@ -11,7 +11,8 @@ import type {
   SnapshotDTO,
   VolumeDTO
 } from '@inkcraft/shared'
-import { countWords } from '@inkcraft/core'
+import { countWords, detectAiFlavor } from '@inkcraft/core'
+import type { AiFlavorReport } from '@inkcraft/core'
 import {
   ChapterEditor,
   appendDraftText,
@@ -57,7 +58,8 @@ const POLISH_LABELS: Record<PolishOperation, string> = {
   polish: '润色',
   rewrite: '改写',
   expand: '扩写',
-  shorten: '缩写'
+  shorten: '缩写',
+  deai: '去 AI 味'
 }
 
 const WORD_COUNT_OPTIONS = [500, 800, 1000, 1500, 2000]
@@ -89,11 +91,15 @@ export function Workbench({ project, onBack }: Props) {
   const [summaryText, setSummaryText] = useState('')
   const [summaryPhase, setSummaryPhase] = useState<'idle' | 'generating' | 'dirty'>('idle')
   const [ragStat, setRagStat] = useState<RagStatusDTO | null>(null)
+  const [flavor, setFlavor] = useState<AiFlavorReport | null>(null)
+  const [styleSample, setStyleSample] = useState(project.styleSample)
+  const [styleSaved, setStyleSaved] = useState(false)
 
   const editorRef = useRef<Editor | null>(null)
   const continueReqRef = useRef<string | null>(null)
   const polishReqRef = useRef<string | null>(null)
   const summarizeReqRef = useRef<string | null>(null)
+  const lastGenTextRef = useRef('')
   const continueSnapRef = useRef<string | undefined>(undefined)
   const genPhaseRef = useRef<ContinueGen['phase']>('idle')
   genPhaseRef.current = gen.phase
@@ -217,9 +223,12 @@ export function Workbench({ project, onBack }: Props) {
   const handleContinueEvent = useCallback((event: AiEvent): void => {
     if (event.type === 'chunk') {
       if (editorRef.current) appendDraftText(editorRef.current, event.text)
+      lastGenTextRef.current += event.text
       return
     }
     if (event.type === 'finish') {
+      // 生成完成即本地检测 AI 味（规则引擎，不耗 token）
+      setFlavor(detectAiFlavor(lastGenTextRef.current))
       setGen({ phase: 'done', usage: event.usage, snapshotId: continueSnapRef.current })
       return
     }
@@ -291,6 +300,8 @@ export function Workbench({ project, onBack }: Props) {
       })
       continueReqRef.current = res.requestId
       continueSnapRef.current = res.snapshotId
+      lastGenTextRef.current = ''
+      setFlavor(null)
       setGen({ phase: 'generating', requestId: res.requestId })
     } catch (e) {
       setGen({ phase: 'error', message: e instanceof Error ? e.message : String(e) })
@@ -438,6 +449,16 @@ export function Workbench({ project, onBack }: Props) {
       await refreshRagStatus()
     } catch (e) {
       window.alert(`重建失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  const saveStyleSample = async (): Promise<void> => {
+    try {
+      await window.inkcraft.projectUpdate({ id: project.id, styleSample: styleSample.trim() })
+      setStyleSaved(true)
+      setTimeout(() => setStyleSaved(false), 2000)
+    } catch (e) {
+      window.alert(`保存失败：${e instanceof Error ? e.message : String(e)}`)
     }
   }
 
@@ -596,8 +617,17 @@ export function Workbench({ project, onBack }: Props) {
           {gen.phase === 'done' && (
             <div className="gen-result">
               <p className="ok">
-                完成：输入 ≈{gen.usage.promptTokens} / 输出 ≈{gen.usage.completionTokens} tokens（估算）
+                完成：输入 ≈{gen.usage.promptTokens} / 输出 ≈{gen.usage.completionTokens} tokens
+                {gen.usage.estimated ? '（估算）' : ''}
               </p>
+              {flavor && (
+                <div className={`flavor-badge ${flavor.level}`}>
+                  AI 味 {flavor.score} ·{' '}
+                  {flavor.level === 'clean' ? '干净' : flavor.level === 'mild' ? '偏重' : '严重'}
+                  （{flavor.hits.length} 项命中）
+                  {flavor.level === 'heavy' && ' —— 建议选中该段，划词「去AI味」'}
+                </div>
+              )}
               <div className="gen-actions">
                 <button onClick={acceptDraft}>采纳</button>
                 <button className="danger" onClick={() => void rollbackContinue()}>
@@ -607,6 +637,26 @@ export function Workbench({ project, onBack }: Props) {
             </div>
           )}
           {gen.phase === 'error' && <p className="error">{gen.message}</p>}
+
+          <h3>文风样本（去 AI 味）</h3>
+          <p className="ai-panel-hint">
+            粘贴 500~8000 字你自己写的（或喜欢的）正文，续写将模仿其语言风格与节奏——这是降低 AI 味最有效的手段。
+          </p>
+          <textarea
+            className="summary-textarea"
+            rows={4}
+            maxLength={8000}
+            placeholder="粘贴文风样本（自己已发布的一章、喜欢的作者的一段皆可）…"
+            value={styleSample}
+            onChange={(e) => setStyleSample(e.target.value)}
+          />
+          <button
+            disabled={styleSample.trim() === project.styleSample}
+            onClick={() => void saveStyleSample()}
+          >
+            保存文风样本
+          </button>
+          {styleSaved && <p className="ok">已保存，下一次续写即生效</p>}
 
           <h3>划词工具</h3>
           {polishModel && polishProvider ? (

@@ -20,7 +20,8 @@ export const updateProjectSchema = z.object({
   genre: z.string().trim().max(30).optional(),
   targetWords: z.number().int().min(0).max(10_000_000).optional(),
   styleGuide: z.string().max(2000).optional(),
-  pov: z.string().max(50).optional()
+  pov: z.string().max(50).optional(),
+  styleSample: z.string().max(8000).optional()
 })
 
 export const createChapterSchema = z.object({
@@ -73,7 +74,7 @@ export const continueParamsSchema = z.object({
 export const polishParamsSchema = z.object({
   chapterId: z.string().min(1),
   selection: z.string().min(1).max(20000),
-  operation: z.enum(['polish', 'rewrite', 'expand', 'shorten']),
+  operation: z.enum(['polish', 'rewrite', 'expand', 'shorten', 'deai']),
   directive: z.string().max(2000).optional(),
   contextBefore: z.string().max(3000).optional()
 })

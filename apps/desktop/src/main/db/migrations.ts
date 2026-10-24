@@ -171,6 +171,13 @@ const migrations: Migration[] = [
       CREATE INDEX idx_chunks_project ON chunks(project_id, source_type);
       CREATE INDEX idx_chunks_chapter ON chunks(project_id, chapter_no);
     `
+  },
+  {
+    version: 6,
+    name: 'project-style-sample',
+    sql: `
+      ALTER TABLE projects ADD COLUMN style_sample TEXT NOT NULL DEFAULT '';
+    `
   }
 ]
 
