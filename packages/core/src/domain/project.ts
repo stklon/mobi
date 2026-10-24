@@ -146,3 +146,23 @@ export const outlineBatchParamsSchema = z.object({
   startNo: z.number().int().min(1).max(100000),
   count: z.number().int().min(1).max(30)
 })
+
+// ---------- 记忆系统 ----------
+
+export const saveSummarySchema = z.object({
+  projectId: z.string().min(1),
+  chapterNo: z.number().int().min(1).max(100000),
+  content: z.string().trim().min(10, '摘要内容过短').max(5000)
+})
+
+export const summarizeParamsSchema = z.object({
+  chapterId: z.string().min(1)
+})
+
+// ---------- 导出 ----------
+
+export const exportParamsSchema = z.object({
+  projectId: z.string().min(1),
+  format: z.enum(['txt', 'docx']),
+  volumeId: z.string().min(1).optional()
+})

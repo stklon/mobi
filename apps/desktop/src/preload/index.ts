@@ -47,7 +47,14 @@ const api: InkcraftApi = {
   outlineGetChapter: (projectId, chapterNo) =>
     ipcRenderer.invoke(IPC.OutlineGetChapter, projectId, chapterNo),
   outlineListChapters: (projectId) => ipcRenderer.invoke(IPC.OutlineListChapters, projectId),
-  outlineSaveChapter: (payload) => ipcRenderer.invoke(IPC.OutlineSaveChapter, payload)
+  outlineSaveChapter: (payload) => ipcRenderer.invoke(IPC.OutlineSaveChapter, payload),
+  aiSummarize: (params) => ipcRenderer.invoke(IPC.AISummarize, params),
+  memoryGetSummary: (projectId, chapterNo) =>
+    ipcRenderer.invoke(IPC.MemoryGetSummary, projectId, chapterNo),
+  memorySaveSummary: (payload) => ipcRenderer.invoke(IPC.MemorySaveSummary, payload),
+  ragStatus: (projectId) => ipcRenderer.invoke(IPC.RagStatus, projectId),
+  ragRebuild: (projectId) => ipcRenderer.invoke(IPC.RagRebuild, projectId),
+  exportRun: (params) => ipcRenderer.invoke(IPC.ExportRun, params)
 }
 
 contextBridge.exposeInMainWorld('inkcraft', api)

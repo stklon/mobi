@@ -26,7 +26,8 @@ const SCENE_ROWS: { key: ModelScene; label: string; hint: string }[] = [
   { key: 'outline', label: '大纲', hint: '卷纲 / 章纲生成，结构能力优先' },
   { key: 'continue', label: '正文续写', hint: '建议长上下文高质量模型' },
   { key: 'polish', label: '润色 / 扩写', hint: '改写与扩写选区' },
-  { key: 'extract', label: '摘要与提取', hint: '后台任务，建议廉价快速模型' }
+  { key: 'extract', label: '摘要与提取', hint: '章后归档等后台任务，建议廉价快速模型' },
+  { key: 'embedding', label: '嵌入（RAG 检索）', hint: '走 /embeddings 接口，如 bge / text-embedding 系列；不配则 RAG 降级为实体关键词检索' }
 ]
 
 const EMPTY_FORM: ProviderForm = { name: '', baseUrl: '', apiKey: '', models: [], origBaseUrl: '' }

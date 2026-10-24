@@ -170,8 +170,13 @@ const T06_CONTINUE = `# 角色
 {{/if}}
 
 {{#if prevContext}}
-# 前文情节（供衔接参考，勿复述）
+# 前文记忆（最近章节，供衔接参考，勿复述）
 {{prevContext}}
+{{/if}}
+
+{{#if ragContext}}
+# 补充资料（与本章相关的旧情节与设定细节，务必保持一致）
+{{ragContext}}
 {{/if}}
 
 # 最近正文（从这里的最后一字继续写）
@@ -209,11 +214,33 @@ const T07_POLISH = `# 角色
 1. 不改变人称、时态、视角；专有名词原样保留。
 2. 只输出结果文本，不要说明修改点。`
 
+// T-09 章后摘要（记忆系统：归档时生成，替代原文尾巴注入后续续写）
+const T09_CHAPTER_SUMMARY = `# 角色
+你是小说连续性编辑，负责为长篇连载撰写"给未来续写用的记忆摘要"。
+
+# 任务
+阅读本章正文，生成 200~400 字的事实型摘要。这段摘要将作为长期记忆，注入后续章节的续写提示词。
+
+# 本章大纲（对照参考）
+{{outlineGoal}}
+
+# 本章正文
+{{chapterContent}}
+
+# 要求（直接输出摘要正文，Markdown）
+1. 只记录事实：发生了什么、谁做了什么、关键对话结论、状态变化（关系/能力/位置/物品）、暴露或推进的信息。
+2. 用第三人称陈述句，禁止抒情、评价与"本章描写了…"这类总结腔。
+3. 质量标准：三个月后续写时，只看这段文字也能无缝接上剧情。
+4. 只写正文实际发生的内容；大纲有但正文没写的不计入。
+
+直接输出摘要正文。`
+
 export const BUILTIN_TEMPLATES: BuiltinTemplate[] = [
   { code: 'T-01', name: '创世 · 世界观生成', content: T01_GENESIS_WORLD },
   { code: 'T-02', name: '创世 · 角色生成', content: T02_GENESIS_CHARACTERS },
   { code: 'T-03', name: '创世 · 总纲生成', content: T03_GENESIS_OUTLINE },
   { code: 'T-05', name: '批量章纲生成', content: T05_OUTLINE_BATCH },
   { code: 'T-06', name: '正文续写', content: T06_CONTINUE },
-  { code: 'T-07', name: '划词润色/改写/扩写/缩写', content: T07_POLISH }
+  { code: 'T-07', name: '划词润色/改写/扩写/缩写', content: T07_POLISH },
+  { code: 'T-09', name: '章后摘要（记忆归档）', content: T09_CHAPTER_SUMMARY }
 ]

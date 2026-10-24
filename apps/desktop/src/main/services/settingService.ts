@@ -27,7 +27,7 @@ interface StoredProvider {
 /** safeStorage 不可用时的明文降级标记（仅极端环境） */
 const PLAIN_PREFIX = 'plain:'
 
-const SCENES: ModelScene[] = ['genesis', 'outline', 'continue', 'polish', 'extract']
+const SCENES: ModelScene[] = ['genesis', 'outline', 'continue', 'polish', 'extract', 'embedding']
 
 /**
  * 设置与模型 Provider 服务。

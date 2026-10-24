@@ -8,14 +8,17 @@ import type {
   CreateCodexPayload,
   CreateProjectPayload,
   CreateProviderPayload,
+  ExportParams,
   GenesisParams,
   ModelConfigDTO,
   OutlineBatchParams,
   PolishParams,
   ProviderTestPayload,
+  RagStatusDTO,
   SaveBookOutlinePayload,
   SaveChapterOutlinePayload,
   SaveChapterPayload,
+  SaveSummaryPayload,
   SaveVolumeOutlinePayload,
   SnapshotKind,
   UpdateCodexPayload,
@@ -24,9 +27,11 @@ import type {
 } from '@inkcraft/shared'
 import {
   continueParamsSchema,
+  exportParamsSchema,
   genesisParamsSchema,
   outlineBatchParamsSchema,
-  polishParamsSchema
+  polishParamsSchema,
+  summarizeParamsSchema
 } from '@inkcraft/core'
 import type { LibraryService } from './services/libraryService'
 import type { SettingService } from './services/settingService'
@@ -36,6 +41,9 @@ import type { AiOrchestrator } from './services/aiOrchestrator'
 import type { CodexService } from './services/codexService'
 import type { OutlineService } from './services/outlineService'
 import type { GenesisService } from './services/genesisService'
+import type { RagService } from './services/ragService'
+import type { MemoryService } from './services/memoryService'
+import { ExportService } from './services/exportService'
 
 export interface MainServices {
   library: LibraryService
@@ -46,6 +54,12 @@ export interface MainServices {
   codex: CodexService
   outline: OutlineService
   genesis: GenesisService
+  rag: RagService
+  memory: MemoryService
+  exporter: ExportService
+  /** 系统保存对话框（主进程注入，便于测试） */
+  saveDialog: (defaultFileName: string, ext: string) => Promise<string | null>
+  getProjectTitle: (id: string) => string | null
 }
 
 /**
@@ -56,7 +70,8 @@ export function registerIpc(
   services: MainServices,
   meta: { version: string; dbPath: string }
 ): void {
-  const { library, settings, writing, snapshots, orchestrator, codex, outline, genesis } = services
+  const { library, settings, writing, snapshots, orchestrator, codex, outline, genesis, rag, memory } =
+    services
 
   const handle = (channel: string, fn: (...args: unknown[]) => unknown): void => {
     ipcMain.handle(channel, (_event, ...args) => {
@@ -92,9 +107,9 @@ export function registerIpc(
 
   // ---------- AI 生成（入队后立即返回，事件经 IPC.AIEvent 广播） ----------
 
-  handle(IPC.AIContinue, (p): AiStartResult => {
+  handle(IPC.AIContinue, async (p): Promise<AiStartResult> => {
     const params = continueParamsSchema.parse(p)
-    const built = writing.buildContinuePrompt(params.chapterId, params)
+    const built = await writing.buildContinuePrompt(params.chapterId, params)
     const snapshot = snapshots.create(params.chapterId, 'before_ai', 'AI 续写前')
     const requestId = randomUUID()
     orchestrator.enqueue({
@@ -115,6 +130,21 @@ export function registerIpc(
     orchestrator.enqueue({
       requestId,
       scene: 'polish',
+      prompt: built.prompt,
+      templateCode: built.templateCode,
+      temperature: built.temperature,
+      maxTokens: built.maxTokens
+    })
+    return { requestId }
+  })
+
+  handle(IPC.AISummarize, (p): AiStartResult => {
+    const params = summarizeParamsSchema.parse(p)
+    const built = memory.buildSummaryPrompt(params.chapterId)
+    const requestId = randomUUID()
+    orchestrator.enqueue({
+      requestId,
+      scene: 'extract',
       prompt: built.prompt,
       templateCode: built.templateCode,
       temperature: built.temperature,
@@ -167,12 +197,23 @@ export function registerIpc(
     )
   )
 
-  // ---------- 设定集（Codex） ----------
+  // ---------- 设定集（Codex，含 RAG 索引钩子） ----------
 
   handle(IPC.CodexList, (projectId, type) => codex.list(projectId as string, type as string | undefined))
-  handle(IPC.CodexCreate, (p) => codex.create(p as CreateCodexPayload))
-  handle(IPC.CodexUpdate, (p) => codex.update(p as UpdateCodexPayload))
-  handle(IPC.CodexDelete, (id) => codex.delete(id as string))
+  handle(IPC.CodexCreate, (p) => {
+    const entry = codex.create(p as CreateCodexPayload)
+    void rag.indexCodexEntry(entry).catch(() => undefined)
+    return entry
+  })
+  handle(IPC.CodexUpdate, (p) => {
+    const entry = codex.update(p as UpdateCodexPayload)
+    void rag.indexCodexEntry(entry).catch(() => undefined)
+    return entry
+  })
+  handle(IPC.CodexDelete, (id) => {
+    codex.delete(id as string)
+    rag.removeCodexEntry(id as string)
+  })
 
   // ---------- 大纲 ----------
 
@@ -185,4 +226,38 @@ export function registerIpc(
   )
   handle(IPC.OutlineListChapters, (projectId) => outline.listChapters(projectId as string))
   handle(IPC.OutlineSaveChapter, (p) => outline.saveChapter(p as SaveChapterOutlinePayload))
+
+  // ---------- 记忆与 RAG ----------
+
+  handle(IPC.MemoryGetSummary, (projectId, chapterNo) =>
+    memory.getSummary(projectId as string, chapterNo as number)
+  )
+  handle(IPC.MemorySaveSummary, (p) => memory.saveSummary(p as SaveSummaryPayload))
+  handle(IPC.RagStatus, (projectId): RagStatusDTO => rag.getStatus(projectId as string))
+  handle(IPC.RagRebuild, async (projectId) => {
+    await rag.rebuildAll(projectId as string)
+  })
+
+  // ---------- 导出 ----------
+
+  handle(IPC.ExportRun, async (p): Promise<{ ok: boolean; path?: string; error?: string }> => {
+    const params = exportParamsSchema.parse(p as ExportParams)
+    const title = services.getProjectTitle(params.projectId)
+    if (!title) throw new Error('作品不存在')
+
+    const chapters = services.exporter.getChapters(params.projectId, params.volumeId)
+    if (chapters.length === 0) throw new Error('没有可导出的章节')
+
+    const ext = params.format === 'txt' ? 'txt' : 'docx'
+    const defaultName = `${ExportService.defaultFileName(title)}.${ext}`
+    const filePath = await services.saveDialog(defaultName, ext)
+    if (!filePath) return { ok: false, error: '已取消' }
+
+    if (params.format === 'txt') {
+      await services.exporter.exportTxt(title, chapters, filePath)
+    } else {
+      await services.exporter.exportDocx(title, chapters, filePath)
+    }
+    return { ok: true, path: filePath }
+  })
 }

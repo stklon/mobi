@@ -7,6 +7,7 @@ import type {
   ChapterMetaDTO,
   PolishOperation,
   ProjectDTO,
+  RagStatusDTO,
   SnapshotDTO,
   VolumeDTO
 } from '@inkcraft/shared'
@@ -85,10 +86,14 @@ export function Workbench({ project, onBack }: Props) {
   const [snapshots, setSnapshots] = useState<SnapshotDTO[]>([])
   const [selectedSnapshot, setSelectedSnapshot] = useState('')
   const [panelTab, setPanelTab] = useState<'ai' | 'codex' | 'outline'>('ai')
+  const [summaryText, setSummaryText] = useState('')
+  const [summaryPhase, setSummaryPhase] = useState<'idle' | 'generating' | 'dirty'>('idle')
+  const [ragStat, setRagStat] = useState<RagStatusDTO | null>(null)
 
   const editorRef = useRef<Editor | null>(null)
   const continueReqRef = useRef<string | null>(null)
   const polishReqRef = useRef<string | null>(null)
+  const summarizeReqRef = useRef<string | null>(null)
   const continueSnapRef = useRef<string | undefined>(undefined)
   const genPhaseRef = useRef<ContinueGen['phase']>('idle')
   genPhaseRef.current = gen.phase
@@ -107,6 +112,27 @@ export function Workbench({ project, onBack }: Props) {
   useEffect(() => {
     void window.inkcraft.getSettings().then(setSettings)
   }, [])
+
+  const refreshRagStatus = useCallback(async () => {
+    setRagStat(await window.inkcraft.ragStatus(project.id))
+  }, [project.id])
+
+  useEffect(() => {
+    void refreshRagStatus()
+  }, [refreshRagStatus])
+
+  // 章节切换时载入已有摘要
+  useEffect(() => {
+    if (!chapter) {
+      setSummaryText('')
+      setSummaryPhase('idle')
+      return
+    }
+    void window.inkcraft.memoryGetSummary(project.id, chapter.no).then((s) => {
+      setSummaryText(s?.content ?? '')
+      setSummaryPhase('idle')
+    })
+  }, [chapter, project.id])
 
   useEffect(() => {
     void (async () => {
@@ -221,13 +247,31 @@ export function Workbench({ project, onBack }: Props) {
     window.alert(`生成失败：${event.error}`)
   }, [])
 
+  const handleSummarizeEvent = useCallback((event: AiEvent): void => {
+    if (event.type === 'chunk') {
+      setSummaryText((t) => t + event.text)
+      return
+    }
+    if (event.type === 'finish') {
+      setSummaryPhase('dirty')
+      return
+    }
+    if (event.type === 'cancelled') {
+      setSummaryPhase('dirty')
+      return
+    }
+    window.alert(`摘要生成失败：${event.error}`)
+    setSummaryPhase('dirty')
+  }, [])
+
   useEffect(() => {
     const unsubscribe = window.inkcraft.onAiEvent((event) => {
       if (event.requestId === continueReqRef.current) handleContinueEvent(event)
       else if (event.requestId === polishReqRef.current) handlePolishEvent(event)
+      else if (event.requestId === summarizeReqRef.current) handleSummarizeEvent(event)
     })
     return unsubscribe
-  }, [handleContinueEvent, handlePolishEvent])
+  }, [handleContinueEvent, handlePolishEvent, handleSummarizeEvent])
 
   // ---------- 续写 ----------
 
@@ -344,6 +388,57 @@ export function Workbench({ project, onBack }: Props) {
     setGen({ phase: 'idle' })
     void loadChapters()
     void refreshSnapshots()
+  }
+
+  // ---------- 章后归档（记忆 + RAG 索引） ----------
+
+  const startSummarize = async (): Promise<void> => {
+    if (!chapter) return
+    if (busy || summaryPhase === 'generating') return
+    if (!settings?.modelConfig.extract) {
+      window.alert('尚未配置「摘要与提取」场景模型：请到 书架 → 设置 → 模型分工')
+      return
+    }
+    await flushSave()
+    try {
+      const res = await window.inkcraft.aiSummarize({ chapterId: chapter.id })
+      summarizeReqRef.current = res.requestId
+      setSummaryText('')
+      setSummaryPhase('generating')
+    } catch (e) {
+      window.alert(`发起失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  const saveSummary = async (): Promise<void> => {
+    if (!chapter || !summaryText.trim()) return
+    try {
+      await window.inkcraft.memorySaveSummary({
+        projectId: project.id,
+        chapterNo: chapter.no,
+        content: summaryText.trim()
+      })
+      setSummaryPhase('idle')
+      await refreshRagStatus()
+    } catch (e) {
+      window.alert(`保存失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  const rebuildRag = async (): Promise<void> => {
+    if (
+      !window.confirm(
+        '重建全书 RAG 索引？将重新切片并嵌入所有已写章节与设定（配置了嵌入服务时会产生少量调用）。'
+      )
+    ) {
+      return
+    }
+    try {
+      await window.inkcraft.ragRebuild(project.id)
+      await refreshRagStatus()
+    } catch (e) {
+      window.alert(`重建失败：${e instanceof Error ? e.message : String(e)}`)
+    }
   }
 
   // ---------- 渲染 ----------
@@ -556,6 +651,60 @@ export function Workbench({ project, onBack }: Props) {
               </div>
             </div>
           )}
+
+          <h3>本章归档（记忆）</h3>
+          <p className="ai-panel-hint">
+            归档生成摘要后：后续章节续写用摘要替代原文尾巴（省 token），本章正文与摘要写入 RAG 索引。
+          </p>
+          {chapter ? (
+            <div className="archive-box">
+              <textarea
+                className="summary-textarea"
+                rows={6}
+                placeholder="点击「AI 生成摘要」产出本章记忆摘要，可编辑后保存归档"
+                value={summaryText}
+                disabled={summaryPhase === 'generating'}
+                onChange={(e) => {
+                  setSummaryText(e.target.value)
+                  setSummaryPhase('dirty')
+                }}
+              />
+              <div className="gen-actions">
+                {summaryPhase === 'generating' ? (
+                  <button
+                    className="stop-btn"
+                    onClick={() => void window.inkcraft.aiCancel(summarizeReqRef.current ?? '')}
+                  >
+                    ■ 停止
+                  </button>
+                ) : (
+                  <button onClick={() => void startSummarize()}>AI 生成摘要</button>
+                )}
+                <button
+                  disabled={!summaryText.trim() || summaryPhase === 'generating'}
+                  onClick={() => void saveSummary()}
+                >
+                  保存并归档
+                </button>
+              </div>
+              {summaryPhase === 'generating' && <p className="streaming">摘要生成中…</p>}
+            </div>
+          ) : (
+            <p className="ai-panel-hint">先选择章节</p>
+          )}
+
+          <h3>RAG 索引</h3>
+          {ragStat ? (
+            <p className="model-line">
+              {ragStat.chunks} 个切片 · 已嵌入 {ragStat.embedded}
+              {!ragStat.embeddingConfigured && '（未配置嵌入模型：仅实体检索）'}
+            </p>
+          ) : (
+            <p className="model-line">加载中…</p>
+          )}
+          <button className="ghost" onClick={() => void rebuildRag()}>
+            重建全书索引
+          </button>
 
           <h3>快照</h3>
           <div className="snapshot-row">

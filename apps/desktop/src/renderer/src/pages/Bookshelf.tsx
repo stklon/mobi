@@ -48,6 +48,16 @@ export function Bookshelf({ onOpen, onStartWizard, onOpenSettings }: Props) {
     void refresh()
   }
 
+  const exportBook = async (project: ProjectDTO, format: 'txt' | 'docx'): Promise<void> => {
+    try {
+      const res = await window.inkcraft.exportRun({ projectId: project.id, format })
+      if (res.ok && res.path) window.alert(`已导出：${res.path}`)
+      else if (res.error && res.error !== '已取消') window.alert(`导出失败：${res.error}`)
+    } catch (e) {
+      window.alert(`导出失败：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
   return (
     <div className="bookshelf">
       <header className="bookshelf-header">
@@ -99,6 +109,12 @@ export function Bookshelf({ onOpen, onStartWizard, onOpenSettings }: Props) {
             </div>
             <div className="project-card-actions">
               <button onClick={() => onOpen(p)}>打开</button>
+              <button className="ghost" onClick={() => void exportBook(p, 'txt')}>
+                导出 txt
+              </button>
+              <button className="ghost" onClick={() => void exportBook(p, 'docx')}>
+                导出 docx
+              </button>
               <button className="danger" onClick={() => void remove(p)}>
                 删除
               </button>

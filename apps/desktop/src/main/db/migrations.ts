@@ -139,6 +139,38 @@ const migrations: Migration[] = [
       CREATE INDEX idx_outline_chapter ON outline_nodes(project_id, chapter_no);
       CREATE UNIQUE INDEX idx_outline_volume ON outline_nodes(volume_id) WHERE level = 'volume';
     `
+  },
+  {
+    version: 5,
+    name: 'summaries-and-rag-chunks',
+    sql: `
+      CREATE TABLE summaries (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        chapter_no INTEGER NOT NULL,
+        level TEXT NOT NULL DEFAULT 'chapter',
+        content TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(project_id, chapter_no, level)
+      );
+      CREATE INDEX idx_summaries_project ON summaries(project_id, chapter_no);
+
+      CREATE TABLE chunks (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        source_type TEXT NOT NULL,
+        source_id TEXT NOT NULL,
+        chapter_no INTEGER,
+        text TEXT NOT NULL,
+        entities TEXT NOT NULL DEFAULT '[]',
+        embedding BLOB,
+        embedding_model TEXT,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_chunks_project ON chunks(project_id, source_type);
+      CREATE INDEX idx_chunks_chapter ON chunks(project_id, chapter_no);
+    `
   }
 ]
 

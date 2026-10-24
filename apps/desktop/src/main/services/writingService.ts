@@ -6,6 +6,8 @@ import type { LibraryService } from './libraryService'
 import type { TemplateService } from './templateService'
 import type { CodexService } from './codexService'
 import type { OutlineService } from './outlineService'
+import type { RagService } from './ragService'
+import type { MemoryService } from './memoryService'
 
 interface PrevChapterRow {
   no: number
@@ -14,8 +16,9 @@ interface PrevChapterRow {
 }
 
 const TEXT_TAIL_CHARS = 2000
+const PREV_SUMMARY_CAP = 400
 const PREV_TAIL_CHARS = 600
-const PREV_CHAPTER_COUNT = 2
+const PREV_CHAPTER_COUNT = 3
 
 const WORLD_TOTAL_CAP = 3000
 const WORLD_ENTRY_CAP = 1200
@@ -44,6 +47,8 @@ export interface ContinuePromptResult {
   templateCode: 'T-06'
   temperature: number
   maxTokens: number
+  /** 透明度数据：本次实际命中的 RAG 区块（透明度面板数据源） */
+  ragChunks: number
 }
 
 export interface PolishPromptResult {
@@ -55,9 +60,9 @@ export interface PolishPromptResult {
 
 /**
  * 写作服务：为续写/润色构建上下文并渲染提示词。
- * M3 版上下文 = 书籍配置 + 世界观常驻卡（Codex pinned）+ 本章大纲（若有）
- *   + 出场角色档案（章纲声明，按名称/别名匹配 Codex）+ 前 2 章结尾 + 本章正文尾部。
- * M4 将接入 RAG 混合检索（相关前文/设定补充区块，见开发文档 7.4 预算表）。
+ * M4 版上下文 = 书籍配置 + 世界观常驻卡（Codex pinned）+ 本章大纲 + 出场角色档案
+ *   + 前文记忆（近 3 章：优先摘要，无摘要退回原文尾巴）+ RAG 补充资料（相关旧情节/设定）
+ *   + 本章正文尾部。
  */
 export class WritingService {
   constructor(
@@ -65,10 +70,15 @@ export class WritingService {
     private readonly library: LibraryService,
     private readonly templates: TemplateService,
     private readonly codex: CodexService,
-    private readonly outline: OutlineService
+    private readonly outline: OutlineService,
+    private readonly rag: RagService,
+    private readonly memory: MemoryService
   ) {}
 
-  buildContinuePrompt(chapterId: string, params: Omit<ContinueParams, 'chapterId'>): ContinuePromptResult {
+  async buildContinuePrompt(
+    chapterId: string,
+    params: Omit<ContinueParams, 'chapterId'>
+  ): Promise<ContinuePromptResult> {
     const chapter = this.library.getChapter(chapterId)
     if (!chapter) throw new Error('章节不存在')
     const project = this.library.getProject(chapter.projectId)
@@ -99,7 +109,9 @@ export class WritingService {
       outlineCharacters = outlineNode.characters.join('、')
     }
 
-    // --- 前文衔接 ---
+    const textTail = tail(chapter.content, TEXT_TAIL_CHARS)
+
+    // --- 前文记忆：近 3 章，优先摘要（token 减半），无摘要退回原文尾巴 ---
     const prevRows = this.db
       .prepare(
         `SELECT no, title, content FROM chapters
@@ -108,10 +120,28 @@ export class WritingService {
       )
       .all(project.id, chapter.no, PREV_CHAPTER_COUNT) as PrevChapterRow[]
 
+    const summaryMap = this.memory.listSummaries(
+      project.id,
+      prevRows.map((r) => r.no)
+    )
     const prevContext = prevRows
       .reverse()
-      .map((c) => `【第${c.no}章 ${c.title}】\n…${tail(c.content, PREV_TAIL_CHARS)}`)
+      .map((c) => {
+        const summary = summaryMap.get(c.no)
+        return summary
+          ? `【第${c.no}章 ${c.title} · 摘要】\n${cap(summary, PREV_SUMMARY_CAP)}`
+          : `【第${c.no}章 ${c.title}】\n…${tail(c.content, PREV_TAIL_CHARS)}`
+      })
       .join('\n\n')
+
+    // --- RAG 补充资料：相关旧情节 / 检索级设定 ---
+    const ragChunks = await this.rag.retrieveForContinue(project.id, chapter.no, {
+      outlineGoal: outlineNode?.goal ?? '',
+      plotPoints: outlineNode?.plotPoints ?? [],
+      characters: outlineNode?.characters ?? [],
+      textTail
+    })
+    const ragContext = this.rag.formatContext(ragChunks)
 
     const wordCount = params.wordCount ?? 1000
     const vars = {
@@ -127,7 +157,8 @@ export class WritingService {
       outlineCharacters,
       outlineHook: outlineNode?.endingHook ?? '',
       prevContext,
-      textTail: tail(chapter.content, TEXT_TAIL_CHARS) || '（本章还没有内容，请直接开篇）',
+      ragContext,
+      textTail: textTail || '（本章还没有内容，请直接开篇）',
       wordCount,
       directive: params.directive ?? ''
     }
@@ -137,7 +168,8 @@ export class WritingService {
       prompt,
       templateCode: 'T-06',
       temperature: 0.8,
-      maxTokens: Math.min(Math.max(wordCount * 2, 1024), 8192)
+      maxTokens: Math.min(Math.max(wordCount * 2, 1024), 8192),
+      ragChunks: ragChunks.length
     }
   }
 

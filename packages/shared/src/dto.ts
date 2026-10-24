@@ -100,8 +100,8 @@ export interface UpdateProviderPayload {
   models?: string[]
 }
 
-/** 功能场景：不同环节可用不同模型（成本/质量分工） */
-export type ModelScene = 'genesis' | 'outline' | 'continue' | 'polish' | 'extract'
+/** 功能场景：不同环节可用不同模型（成本/质量分工）；embedding 走 /embeddings 接口 */
+export type ModelScene = 'genesis' | 'outline' | 'continue' | 'polish' | 'extract' | 'embedding'
 
 export interface SceneModelConfig {
   providerId: string
@@ -297,4 +297,53 @@ export interface ParsedChapterOutlineDTO {
   plotPoints: string[]
   characters: string[]
   endingHook: string
+}
+
+// ---------- 记忆系统（章后摘要） ----------
+
+export interface SummaryDTO {
+  id: string
+  projectId: string
+  chapterNo: number
+  level: 'chapter' | 'volume'
+  content: string
+  updatedAt: number
+}
+
+export interface SaveSummaryPayload {
+  projectId: string
+  chapterNo: number
+  content: string
+}
+
+// ---------- RAG ----------
+
+export interface RagStatusDTO {
+  chunks: number
+  embedded: number
+  embeddingConfigured: boolean
+}
+
+export interface RagContextChunkDTO {
+  text: string
+  sourceType: 'codex' | 'chapter_text' | 'summary'
+  label: string
+  score: number
+}
+
+// ---------- 导出 ----------
+
+export type ExportFormat = 'txt' | 'docx'
+
+export interface ExportParams {
+  projectId: string
+  format: ExportFormat
+  /** 不传 = 全书；传则只导该卷 */
+  volumeId?: string
+}
+
+export interface ExportResult {
+  ok: boolean
+  path?: string
+  error?: string
 }

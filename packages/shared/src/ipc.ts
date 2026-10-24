@@ -11,6 +11,8 @@ import type {
   CodexEntryDTO,
   CreateProjectPayload,
   CreateProviderPayload,
+  ExportParams,
+  ExportResult,
   GenesisParams,
   ModelConfigDTO,
   OutlineBatchParams,
@@ -20,12 +22,15 @@ import type {
   ProviderDTO,
   ProviderTestPayload,
   ProviderTestResult,
+  RagStatusDTO,
   SaveBookOutlinePayload,
   SaveChapterOutlinePayload,
   SaveChapterPayload,
+  SaveSummaryPayload,
   SaveVolumeOutlinePayload,
   SnapshotDTO,
   SnapshotKind,
+  SummaryDTO,
   UpdateCodexPayload,
   UpdateProjectPayload,
   UpdateProviderPayload,
@@ -70,7 +75,13 @@ export const IPC = {
   OutlineSaveVolume: 'outline:save-volume',
   OutlineGetChapter: 'outline:get-chapter',
   OutlineListChapters: 'outline:list-chapters',
-  OutlineSaveChapter: 'outline:save-chapter'
+  OutlineSaveChapter: 'outline:save-chapter',
+  AISummarize: 'ai:summarize',
+  MemoryGetSummary: 'memory:get-summary',
+  MemorySaveSummary: 'memory:save-summary',
+  RagStatus: 'rag:status',
+  RagRebuild: 'rag:rebuild',
+  ExportRun: 'export:run'
 } as const
 
 export interface InkcraftApi {
@@ -112,4 +123,10 @@ export interface InkcraftApi {
   outlineGetChapter(projectId: string, chapterNo: number): Promise<OutlineNodeDTO | null>
   outlineListChapters(projectId: string): Promise<OutlineNodeDTO[]>
   outlineSaveChapter(payload: SaveChapterOutlinePayload): Promise<OutlineNodeDTO>
+  aiSummarize(params: { chapterId: string }): Promise<AiStartResult>
+  memoryGetSummary(projectId: string, chapterNo: number): Promise<SummaryDTO | null>
+  memorySaveSummary(payload: SaveSummaryPayload): Promise<SummaryDTO>
+  ragStatus(projectId: string): Promise<RagStatusDTO>
+  ragRebuild(projectId: string): Promise<void>
+  exportRun(params: ExportParams): Promise<ExportResult>
 }

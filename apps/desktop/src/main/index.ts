@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, dialog } from 'electron'
 import path from 'node:path'
 import { closeDb, initDb } from './db/database'
 import { seedTemplates } from './services/templateService'
@@ -11,9 +11,13 @@ import { AiOrchestrator } from './services/aiOrchestrator'
 import { CodexService } from './services/codexService'
 import { OutlineService } from './services/outlineService'
 import { GenesisService } from './services/genesisService'
+import { EmbeddingClient } from './services/embeddingClient'
+import { RagService } from './services/ragService'
+import { MemoryService } from './services/memoryService'
+import { ExportService } from './services/exportService'
 import { IPC } from '@inkcraft/shared'
 import type { AiEvent } from '@inkcraft/shared'
-import { BUILTIN_TEMPLATES, parseCharacterCards, parseOutlineBatch } from '@inkcraft/core'
+import { BUILTIN_TEMPLATES, buildExportText, chunkText, parseCharacterCards, parseOutlineBatch } from '@inkcraft/core'
 import { registerIpc } from './ipc'
 
 let mainWindow: BrowserWindow | null = null
@@ -54,7 +58,7 @@ function createWindow(): void {
 }
 
 /** 冒烟模式：不依赖 UI 交互，直接验证主进程服务层，跑完自动退出 */
-function runSmoke(
+async function runSmoke(
   db: import('better-sqlite3').Database,
   services: {
     library: LibraryService
@@ -65,9 +69,13 @@ function runSmoke(
     codex: CodexService
     outline: OutlineService
     genesis: GenesisService
+    rag: RagService
+    memory: MemoryService
+    exporter: ExportService
   }
-): void {
-  const { library, settings, templates, snapshots, writing, codex, outline, genesis } = services
+): Promise<void> {
+  const { library, settings, templates, snapshots, writing, codex, outline, genesis, rag, memory, exporter } =
+    services
 
   // --- 图书链路 ---
   const project = library.createProject({ title: `冒烟测试 ${Date.now()}`, genre: '玄幻' })
@@ -78,6 +86,7 @@ function runSmoke(
     title: '第一章 醒来',
     content: '林凡睁开眼，发现自己回到了十八岁那年夏天。蝉鸣声穿过纱窗，涌进这间狭小的出租屋。'
   })
+  const chapter2 = library.createChapter({ projectId: project.id, volumeId: volumes[0].id })
 
   // --- 模板：seed upsert + 渲染 ---
   const tplCount = (
@@ -94,7 +103,7 @@ function runSmoke(
     wordCount: 800,
     directive: ''
   })
-  if (!rendered.prompt.includes(saved.content) || rendered.prompt.includes('前文情节')) {
+  if (!rendered.prompt.includes(saved.content) || rendered.prompt.includes('前文记忆')) {
     throw new Error('T-06 渲染结果异常（正文尾部缺失或空条件块未裁剪）')
   }
 
@@ -108,6 +117,17 @@ function runSmoke(
   )
   if (parsedOutline.length !== 1 || parsedOutline[0].no !== 3 || parsedOutline[0].plotPoints.length !== 2) {
     throw new Error('章纲 JSON 解析异常')
+  }
+
+  // --- 切片器：段落聚合 + 实体标注 ---
+  const sampleText = Array.from(
+    { length: 20 },
+    (_, i) => `第${i + 1}段。林凡走进藏经阁，翻开了那本残卷，里面的文字晦涩难懂，他却看得入神，不知不觉天色已晚。`
+  ).join('\n\n')
+  const chunks = chunkText(sampleText, ['林凡', '藏经阁'])
+  if (chunks.length < 2) throw new Error(`切片数量异常: ${chunks.length}`)
+  if (!chunks.some((c) => c.entities.includes('林凡') && c.entities.includes('藏经阁'))) {
+    throw new Error('切片实体标注缺失')
   }
 
   // --- Codex：CRUD + pinned + 别名匹配 ---
@@ -125,10 +145,14 @@ function runSmoke(
     aliases: ['小聋子', '凡哥'],
     content: '主角，坚韧，遇事先苟后爆发。'
   })
+  const location = codex.create({
+    projectId: project.id,
+    type: 'location',
+    name: '藏经阁',
+    content: '宗门禁地，存放上古残卷，夜里有人巡逻。'
+  })
   if (!codex.listPinned(project.id).some((e) => e.id === world.id)) throw new Error('pinned 条目缺失')
   if (codex.matchCharacters(project.id, ['小聋子'])[0]?.id !== hero.id) throw new Error('别名匹配失败')
-  const characterList = codex.list(project.id, 'character')
-  if (characterList.length !== 1 || characterList[0].id !== hero.id) throw new Error('类型过滤失败')
 
   // --- 大纲：总纲 + 章纲 upsert ---
   outline.saveBook({ projectId: project.id, content: '一句话梗概：废柴少年逆天改命。' })
@@ -144,20 +168,34 @@ function runSmoke(
   outline.saveChapter({
     projectId: project.id,
     volumeId: volumes[0].id,
-    chapterNo: 1,
-    goal: '林凡醒来，发现重生（修订）',
-    plotPoints: ['确认重生', '发现金手指', '藏起锋芒'],
-    characters: ['小聋子'],
-    endingHook: '仇人上门'
+    chapterNo: 2,
+    goal: '夜探藏经阁',
+    plotPoints: ['翻墙入阁', '遭遇黑影'],
+    characters: ['林凡', '小聋子'],
+    endingHook: '黑影转身'
   })
-  const outlineNodes = outline.listChapters(project.id)
-  if (outlineNodes.length !== 1 || outlineNodes[0].plotPoints.length !== 3) {
-    throw new Error('章纲 upsert 异常（应合并为一条）')
-  }
+  if (outline.listChapters(project.id).length !== 2) throw new Error('章纲数量异常')
 
-  // --- 续写上下文：章纲 + 世界观 + 角色卡注入 T-06 ---
-  const built = writing.buildContinuePrompt(chapter.id, { wordCount: 800 })
-  if (!built.prompt.includes('本章大纲') || !built.prompt.includes('仇人上门')) {
+  // --- 记忆 + RAG：章后摘要 -> 索引 -> 续写上下文注入 ---
+  const summary = await memory.saveSummary({
+    projectId: project.id,
+    chapterNo: 1,
+    content: '林凡重生回到十八岁，确认自己握有时间循环的金手指，仇人王虎当日将上门寻衅。'
+  })
+  if (memory.getSummary(project.id, 1)?.id !== summary.id) throw new Error('摘要读取异常')
+
+  // 检索级设定入索引（pinned 的世界观不入 RAG，走常驻区块）
+  await rag.indexCodexEntry(location)
+  await rag.indexCodexEntry(hero)
+
+  library.saveChapter({
+    id: chapter2.id,
+    title: '第二章 夜探',
+    content: '夜色落下。林凡换上夜行衣，绕开巡夜弟子，朝藏经阁摸去。'
+  })
+
+  const built = await writing.buildContinuePrompt(chapter2.id, { wordCount: 800 })
+  if (!built.prompt.includes('本章大纲') || !built.prompt.includes('夜探藏经阁')) {
     throw new Error('续写上下文未注入章纲')
   }
   if (!built.prompt.includes('世界观核心设定') || !built.prompt.includes('九州大陆')) {
@@ -165,6 +203,16 @@ function runSmoke(
   }
   if (!built.prompt.includes('出场角色档案') || !built.prompt.includes('小聋子')) {
     throw new Error('续写上下文未注入出场角色档案（别名应解析为角色卡）')
+  }
+  if (!built.prompt.includes('摘要') || !built.prompt.includes('时间循环')) {
+    throw new Error('前文记忆未使用章后摘要')
+  }
+  if (!built.prompt.includes('补充资料') || !built.prompt.includes('宗门禁地')) {
+    throw new Error('RAG 补充资料未命中藏经阁设定（关键词通道）')
+  }
+  const ragStatus = rag.getStatus(project.id)
+  if (ragStatus.chunks < 3 || ragStatus.embedded !== 0 || ragStatus.embeddingConfigured) {
+    throw new Error(`RAG 索引状态异常: ${JSON.stringify(ragStatus)}`)
   }
 
   // --- 创世提示词构建 ---
@@ -175,11 +223,22 @@ function runSmoke(
   })
   if (!genesisPrompt.prompt.includes('时间循环者')) throw new Error('创世提示词构建异常')
 
+  // --- 摘要提示词构建 ---
+  const summaryPrompt = memory.buildSummaryPrompt(chapter2.id)
+  if (!summaryPrompt.prompt.includes('夜色落下')) throw new Error('摘要提示词未包含正文')
+
   // --- 快照：创建 -> 修改 -> 恢复回环 ---
   const snap = snapshots.create(chapter.id, 'before_ai', '冒烟快照')
   library.saveChapter({ id: chapter.id, content: '被覆盖的内容' })
   const restored = snapshots.restore(snap.id, (id, content) => library.saveChapter({ id, content }))
   if (restored.content !== saved.content) throw new Error('快照恢复后内容不一致')
+
+  // --- 导出文本构建 ---
+  const exportChapters = exporter.getChapters(project.id)
+  const exportText = buildExportText('冒烟测试之书', exportChapters)
+  if (!exportText.includes('第一章 醒来') || !exportText.includes('蝉鸣声') || !exportText.includes('【第一卷】')) {
+    throw new Error('导出文本构建异常')
+  }
 
   // --- 编排器：未配置模型时的失败路径（独立探针实例验证日志 + error 事件） ---
   const events: AiEvent[] = []
@@ -191,21 +250,13 @@ function runSmoke(
     temperature: 0.8,
     maxTokens: 100
   })
-  probe
-    .drain()
-    .then(() => {
-      if (!events.some((e) => e.type === 'error')) throw new Error('未配置模型时未广播 error 事件')
-      const logCount = (db.prepare('SELECT COUNT(*) AS c FROM ai_logs').get() as { c: number }).c
-      if (logCount < 1) throw new Error('ai_logs 未记录失败调用')
+  await probe.drain()
+  if (!events.some((e) => e.type === 'error')) throw new Error('未配置模型时未广播 error 事件')
+  const logCount = (db.prepare('SELECT COUNT(*) AS c FROM ai_logs').get() as { c: number }).c
+  if (logCount < 1) throw new Error('ai_logs 未记录失败调用')
 
-      library.deleteProject(project.id)
-      console.log('[smoke] OK: 图书/模板/解析器/Codex/大纲/T-06注入/创世/快照/编排器失败路径 全链路通过')
-      app.quit()
-    })
-    .catch((err) => {
-      console.error('[smoke] FAILED:', err)
-      app.exit(1)
-    })
+  library.deleteProject(project.id)
+  console.log('[smoke] OK: 图书/模板/解析器/切片器/Codex/大纲/记忆摘要/RAG检索注入/创世/快照/导出/编排器失败路径 全链路通过')
 }
 
 app.whenReady()
@@ -224,20 +275,50 @@ app.whenReady()
       (id) => library.getVolume(id) !== null
     )
     const genesis = new GenesisService(library, codex, outline, templates)
-    const writing = new WritingService(db, library, templates, codex, outline)
+    const embedding = new EmbeddingClient(settings)
+    const rag = new RagService(db, embedding, library, codex)
+    const memory = new MemoryService(db, library, outline, templates, rag)
+    const writing = new WritingService(db, library, templates, codex, outline, rag, memory)
+    const exporter = new ExportService(db)
     const orchestrator = new AiOrchestrator(db, settings, (event) => {
       mainWindow?.webContents.send(IPC.AIEvent, event)
     })
 
     registerIpc(
-      { library, settings, writing, snapshots, orchestrator, codex, outline, genesis },
+      {
+        library,
+        settings,
+        writing,
+        snapshots,
+        orchestrator,
+        codex,
+        outline,
+        genesis,
+        rag,
+        memory,
+        exporter,
+        saveDialog: async (defaultFileName, ext) => {
+          if (!mainWindow) return null
+          const res = await dialog.showSaveDialog(mainWindow, {
+            defaultPath: defaultFileName,
+            filters: [{ name: ext.toUpperCase(), extensions: [ext] }]
+          })
+          return res.canceled || !res.filePath ? null : res.filePath
+        },
+        getProjectTitle: (id) => library.getProject(id)?.title ?? null
+      },
       { version: app.getVersion(), dbPath: db.name }
     )
     createWindow()
 
     if (process.env.INKCRAFT_SMOKE) {
       setTimeout(() => {
-        runSmoke(db, { library, settings, templates, snapshots, writing, codex, outline, genesis })
+        runSmoke(db, { library, settings, templates, snapshots, writing, codex, outline, genesis, rag, memory, exporter })
+          .then(() => app.quit())
+          .catch((err) => {
+            console.error('[smoke] FAILED:', err)
+            app.exit(1)
+          })
       }, 1500)
     }
   })
